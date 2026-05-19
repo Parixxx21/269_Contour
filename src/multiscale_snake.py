@@ -24,7 +24,8 @@ class MultiscaleSnake:
         alpha=0.015,
         beta=0.1,
         gamma=0.001,
-        sigma_coarse=8.0,  # Gaussian sigma at the coarsest level
+        sigma_coarse=4.0,
+        sigma_fine=1.5,
         n_levels=3,
         n_iter_per_level=None,
         n_iter=2500,
@@ -36,16 +37,25 @@ class MultiscaleSnake:
         self.beta = beta
         self.gamma = gamma
         self.sigma_coarse = sigma_coarse
+        self.sigma_fine = sigma_fine
         self.n_levels = n_levels
         self.n_iter = n_iter
-        self.n_iter_per_level = n_iter_per_level or max(1, n_iter // n_levels)
+        # Weight iterations toward coarse levels so elastic propagation has time
+        # to pull far-away points into the force field before refining.
+        if n_iter_per_level is not None:
+            self.iters_per_level = [n_iter_per_level] * n_levels
+        else:
+            base = max(1, n_iter // n_levels)
+            self.iters_per_level = [base * (n_levels - i) // n_levels
+                                    for i in range(n_levels)]
+            self.iters_per_level[-1] = max(base, n_iter - sum(self.iters_per_level[:-1]))
         self.wline = wline
         self.wedge = wedge
         self.boundary_condition = boundary_condition
 
     def _build_pyramid(self, image):
         """Return list of smoothed images, coarsest first."""
-        sigmas = np.linspace(self.sigma_coarse, 0.5, self.n_levels)
+        sigmas = np.linspace(self.sigma_coarse, self.sigma_fine, self.n_levels)
         return [gaussian(image.astype(float), sigma=s) for s in sigmas]
 
     def fit(self, image, init_snake):
@@ -64,7 +74,7 @@ class MultiscaleSnake:
         snake = init_snake.copy().astype(float)
         history = [snake.copy()]
 
-        for level_img in pyramid:
+        for level_img, n_iter in zip(pyramid, self.iters_per_level):
             snake = active_contour(
                 level_img,
                 snake,
@@ -73,7 +83,7 @@ class MultiscaleSnake:
                 gamma=self.gamma,
                 w_line=self.wline,
                 w_edge=self.wedge,
-                max_num_iter=self.n_iter_per_level,
+                max_num_iter=n_iter,
                 boundary_condition=self.boundary_condition,
             )
             history.append(snake.copy())

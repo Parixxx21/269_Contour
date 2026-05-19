@@ -21,20 +21,21 @@ class CombinedSnake(AdaptiveSnake):
     def __init__(
         self,
         sigma_coarse=8.0,
+        sigma_fine=3.0,   # force field involves 2nd-order derivatives; noise ∝ 1/σ², so keep σ≥3
         n_levels=3,
         n_iter_per_level=None,
         **adaptive_kwargs,
     ):
         super().__init__(**adaptive_kwargs)
         self.sigma_coarse = sigma_coarse
+        self.sigma_fine = sigma_fine
         self.n_levels = n_levels
-        # Distribute total iterations across levels
         total = adaptive_kwargs.get("n_iter", 500)
         self.n_iter_per_level = n_iter_per_level or max(1, total // n_levels)
 
     def _build_pyramid(self, image):
         """Coarsest-first list of smoothed images."""
-        sigmas = np.linspace(self.sigma_coarse, 0.5, self.n_levels)
+        sigmas = np.linspace(self.sigma_coarse, self.sigma_fine, self.n_levels)
         return [gaussian(image.astype(float), sigma=s) for s in sigmas]
 
     def fit(self, image, init_snake):
@@ -55,13 +56,11 @@ class CombinedSnake(AdaptiveSnake):
         h, w = image.shape
         history = [snake.copy()]
 
-        orig_n_iter = self.n_iter
-        self.n_iter = self.n_iter_per_level
-
         for level_img in pyramid:
-            # External forces computed on level image but adaptive weights use original
+            # Pyramid image is already smoothed — use minimal extra sigma to avoid
+            # double-blurring, which would misplace the force field.
             fy, fx = compute_external_forces(
-                level_img, sigma=self.sigma, wline=self.wline, wedge=self.wedge
+                level_img, sigma=0.5, wline=self.wline, wedge=self.wedge
             )
             fscale = max(np.abs(fx).max(), np.abs(fy).max(), 1e-8)
             fx = fx / fscale
@@ -70,7 +69,6 @@ class CombinedSnake(AdaptiveSnake):
             inv = None
             for it in range(self.n_iter_per_level):
                 if it % self.update_every == 0:
-                    # Adaptive weights evaluated on the original (non-blurred) image
                     beta_arr = self._adaptive_beta(image, snake)
                     A = self._build_matrix(n, beta_arr)
                     inv = np.linalg.inv(A + self.gamma * np.eye(n))
@@ -81,7 +79,9 @@ class CombinedSnake(AdaptiveSnake):
                 snake[:, 0] = np.clip(yn, 0, h - 1)
                 snake[:, 1] = np.clip(xn, 0, w - 1)
 
+                if self.reparam_every > 0 and (it + 1) % self.reparam_every == 0:
+                    snake = self._reparameterize(snake)
+
             history.append(snake.copy())
 
-        self.n_iter = orig_n_iter
         return snake, history
