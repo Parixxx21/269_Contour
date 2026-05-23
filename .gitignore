@@ -1,0 +1,21 @@
+# Training outputs — timestamped run dirs, models, plots
+results/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Env
+.env
+.venv/
+venv/
+
+# macOS
+.DS_Store
