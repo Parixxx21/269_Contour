@@ -13,17 +13,15 @@ class AdaptiveSnake:
     The bending stiffness beta_i at each contour point is modulated by the
     local gradient magnitude:
 
-        beta_i = beta_max * exp(-k * |∇I(v_i)|)
+        beta_i = beta_min + (beta_max - beta_min) * exp(-k * |∇I(v_i)|)
 
     Near strong edges  → small beta  (contour deforms freely to track details)
-    In flat/noisy areas → large beta (strong regularization prevents drift)
+    In flat/noisy areas → large beta  (strong regularization prevents drift)
 
-    The elastic weight alpha remains fixed.  The update rule uses implicit
-    time-stepping:
+    The elastic weight alpha and time-step gamma remain fixed globally.
+    Update rule (implicit time-stepping):
 
         (A(beta) + gamma * I) v^{t+1} = gamma * v^t + F_ext(v^t)
-
-    where A(beta) is the position-dependent pentadiagonal stiffness matrix.
     """
 
     def __init__(
@@ -32,11 +30,11 @@ class AdaptiveSnake:
         beta_min=0.005,
         beta_max=0.05,
         k=10.0,           # sensitivity to gradient magnitude
-        gamma=5.0,      # implicit time-step: step ≈ F/gamma; keep small so forces move the snake
-        sigma=6.0,      # smoothing for external energy; larger → longer-range force field
+        gamma=5.0,        # implicit time-step (global)
+        sigma=6.0,        # smoothing for external energy
         n_iter=800,
-        update_every=10,   # recompute adaptive matrix every N iterations
-        reparam_every=50,  # redistribute points by arc length every N iterations (0 = off)
+        update_every=10,  # recompute adaptive matrix every N iterations
+        reparam_every=50, # arc-length redistribution every N iterations (0 = off)
         wline=0.0,
         wedge=1.0,
     ):
@@ -57,14 +55,13 @@ class AdaptiveSnake:
     # ------------------------------------------------------------------
 
     def _adaptive_beta(self, image, snake):
-        """Return per-point beta values based on local gradient magnitude."""
+        """Per-point β: β_min + (β_max - β_min)*exp(-k*|∇I|)."""
         gmag = compute_gradient_magnitude(image, sigma=self.sigma)
         h, w = gmag.shape
         y = np.clip(snake[:, 0], 0, h - 1)
         x = np.clip(snake[:, 1], 0, w - 1)
         local_g = map_coordinates(gmag, [y, x], order=1, mode="nearest")
-        beta = self.beta_max * np.exp(-self.k * local_g)
-        return np.clip(beta, self.beta_min, self.beta_max)
+        return self.beta_min + (self.beta_max - self.beta_min) * np.exp(-self.k * local_g)
 
     def _build_matrix(self, n, beta_array):
         """

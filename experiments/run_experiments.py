@@ -61,7 +61,7 @@ def build_methods():
         ),
         "Adaptive": AdaptiveSnake(
             alpha=0.015, beta_min=0.005, beta_max=0.3, k=5.0,
-            gamma=5.0, sigma=8.0, n_iter=800, update_every=20, wedge=1.0
+            gamma=5.0, sigma=8.0, n_iter=2500, update_every=20, wedge=1.0
         ),
         "Multiscale": MultiscaleSnake(
             alpha=0.015, beta=0.1, gamma=0.001, sigma_coarse=4.0,

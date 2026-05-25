@@ -1,12 +1,11 @@
 """
-Train and evaluate the RL adaptive force controller.
+Train and evaluate the RL adaptive force controller (adjust γ and σ).
 
 Usage
 -----
-    cd /Users/effiewu0628/Desktop/quarter3/269_project
-    python extensions/rl_controller/train.py               # train
-    python extensions/rl_controller/train.py --eval-only results/rl_ctrl/RUN_DIR
-    python extensions/rl_controller/train.py --case noisy_star
+    python extensions/adaptive_rl/train.py               # train
+    python extensions/adaptive_rl/train.py --eval-only results/rl_ctrl/RUN_DIR
+    python extensions/adaptive_rl/train.py --case noisy_star
 """
 
 import sys, os
@@ -22,12 +21,35 @@ import matplotlib.pyplot as plt
 from stable_baselines3 import DQN
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.callbacks import BaseCallback
 
-from extensions.rl_controller.env import SnakeCtrlEnv, PRESETS, N_ACTIONS
+from extensions.adaptive_rl.env import SnakeCtrlEnv, PRESETS, N_ACTIONS
 from experiments.synthetic_images import generate_test_cases
 
 RESULTS_DIR  = "results/rl_ctrl"
 TOTAL_STEPS  = 400_000
+
+
+class ProgressLogger(BaseCallback):
+    """Writes a one-line progress update to a file every LOG_EVERY steps."""
+    LOG_EVERY = 5_000
+
+    def __init__(self, log_path):
+        super().__init__()
+        self._log_path = log_path
+        self._last_log = 0
+
+    def _on_step(self):
+        if self.num_timesteps - self._last_log >= self.LOG_EVERY:
+            ep_rew = self.model.ep_info_buffer
+            mean_rew = float(np.mean([e["r"] for e in ep_rew])) if ep_rew else 0.0
+            line = (f"step={self.num_timesteps}  "
+                    f"ep_rew={mean_rew:.4f}  "
+                    f"eps={self.model.exploration_rate:.3f}\n")
+            with open(self._log_path, "a") as f:
+                f.write(line)
+            self._last_log = self.num_timesteps
+        return True
 
 
 def _run_dir(tag=""):
@@ -51,9 +73,11 @@ def train(env, total_steps=TOTAL_STEPS, run_dir=None):
         exploration_final_eps=0.05,
         train_freq=4,
         target_update_interval=500,
-        verbose=1,
+        verbose=0,   # suppress stdout — progress tracked via progress.log
     )
-    model.learn(total_timesteps=total_steps)
+    log_path = os.path.join(run_dir, "progress.log")
+    model.learn(total_timesteps=total_steps,
+                callback=ProgressLogger(log_path))
     path = os.path.join(run_dir, "dqn_ctrl")
     model.save(path)
     print(f"Model saved to {path}.zip")

@@ -1,28 +1,22 @@
 """
-RL Adaptive Force Controller for active contour snakes.
+RL Adaptive Force Controller — wraps AdaptiveSnake logic.
 
-The RL agent learns WHEN to trust image-derived forces vs the smoothness
-prior — a fundamental trade-off in active contour models.
+The RL agent learns WHEN to use which (γ, σ) combination, adding
+temporal adaptivity on top of AdaptiveSnake's spatial adaptivity (per-point β).
 
-In the implicit-time-step snake update:
-    v^{t+1} = (A + γI)^{-1} (γ v^t + F_ext)
+AdaptiveSnake already handles:
+  - spatially-varying β_i: near strong edges β is small (snake deforms freely),
+    in flat/noisy areas β is large (strong regularisation)
 
-γ controls the trust balance:
-  low  γ → snake follows image force aggressively (trusts gradient)
-  high γ → snake resists change, smoothness dominates (mistrusts gradient)
+RL adds:
+  - temporally-varying γ and σ: agent decides each 50-iter chunk whether to
+    be aggressive (low γ, fine σ) or conservative (high γ, coarse σ)
 
-σ controls which scale of edges to trust:
-  high σ → respond only to coarse, strong edges (robust to noise)
-  low  σ → respond to fine, detailed edges (precise but noise-sensitive)
+Update rule (same as AdaptiveSnake):
+    (A(β) + γI) v^{t+1} = γ v^t + F_ext(v^t)
 
-RL learns to select (γ, σ) at each step based on the current contour
-state — no manual schedule, purely from experience.
-
-Comparison with existing methods:
-  Classical  : fixed γ/σ for all iterations
-  Adaptive   : spatially-varying β (not γ), fixed σ
-  Multiscale : hand-designed σ schedule coarse→fine, fixed γ/β
-  RL (this)  : temporally-adaptive γ and σ, learned policy
+where A(β) is the per-point stiffness matrix and
+      F_ext = -∇(-wedge·|∇(G_σ*I)|²)  (edge-energy gradient, pulls toward edges)
 
 Episode budget: MAX_STEPS (40) × ITERS_PER_STEP (50) = 2000 snake iters
                (same total as classical methods in main.py)
@@ -40,11 +34,11 @@ Observation (104-dim)
 
 Actions (8 discrete)
 ---------------------
-  0  γ=1,  σ=2  — full trust in force, fine detail  (strong edge, precise)
-  1  γ=2,  σ=3  — high trust, medium detail
-  2  γ=5,  σ=5  — balanced  (classical default)
-  3  γ=10, σ=6  — lean toward smoothness, moderate scale
-  4  γ=20, σ=8  — near-frozen, coarse edges only  (noisy/flat region)
+  0  γ=1,  σ=2  — aggressive: full trust in force, fine edges
+  1  γ=2,  σ=3  — confident
+  2  γ=5,  σ=5  — balanced (AdaptiveSnake default)
+  3  γ=10, σ=6  — cautious (AdaptiveSnake default σ)
+  4  γ=20, σ=8  — conservative: near-frozen, coarse edges only
   5  reparameterize — arc-length redistribution, no snake iters
   6  done        — terminate episode early
 
@@ -60,11 +54,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-from scipy.ndimage import gaussian_filter, map_coordinates
-from scipy.linalg import circulant
+from scipy.ndimage import map_coordinates, gaussian_filter
 
 from skimage.draw import polygon as sk_polygon
 from src.evaluation import evaluate_snake
+from src.energy import compute_external_forces, compute_gradient_magnitude
 from extensions.rl_snake_env import (
     _random_case, _circular_snake, _gradient_features, _contour_stats,
 )
@@ -72,21 +66,25 @@ from extensions.rl_snake_env import (
 # ── Constants ──────────────────────────────────────────────────────────────────
 N_PROBES          = 32
 N_POINTS          = 100
-MAX_STEPS         = 40        # RL decisions per episode
-ITERS_PER_STEP    = 50        # snake iters per RL action  (40×50 = 2000 total)
-REPARAM_EVERY     = 25        # arc-length reparam inside each batch
-ALPHA_SNAKE       = 0.015     # elasticity — fixed (RL controls γ and σ only)
-BETA_SNAKE        = 0.1       # bending stiffness — fixed
+MAX_STEPS         = 50        # RL decisions per episode
+ITERS_PER_STEP    = 50        # snake iters per RL action  (50×50 = 2500 total)
+UPDATE_EVERY      = 10        # recompute adaptive β matrix every N iters
+REPARAM_EVERY     = 50        # arc-length reparam inside each batch
+ALPHA_SNAKE       = 0.015     # elasticity — fixed
+BETA_MIN          = 0.005     # adaptive β lower bound (matches AdaptiveSnake)
+BETA_MAX          = 0.3       # adaptive β upper bound (matches AdaptiveSnake)
+K_SENSITIVITY     = 5.0       # how fast β drops near strong edges (matches AdaptiveSnake)
 IOU_BONUS_THRESHOLD = 0.92
 
 # (γ, σ) presets: rows of [gamma, sigma]
-# gamma controls force vs smoothness trust; sigma controls edge scale
+# γ controls force vs smoothness trust (low γ = aggressive, high γ = conservative)
+# σ controls edge scale (low σ = fine detail, high σ = noise-robust)
 PRESETS = np.array([
     [1.0,  2.0],   # 0 aggressive: full trust in force, fine edges
     [2.0,  3.0],   # 1 confident
-    [5.0,  5.0],   # 2 balanced  (classical default)
-    [10.0, 6.0],   # 3 cautious
-    [20.0, 8.0],   # 4 conservative: resist force, coarse edges only
+    [5.0,  5.0],   # 2 balanced  (AdaptiveSnake default γ=5)
+    [10.0, 6.0],   # 3 cautious  (AdaptiveSnake default σ=6)
+    [20.0, 8.0],   # 4 conservative: near-frozen, coarse edges only
 ], dtype=np.float64)
 
 N_PRESETS  = len(PRESETS)
@@ -114,14 +112,30 @@ def _fast_iou(snake, gt_mask, shape):
 
 # ── Snake helpers ──────────────────────────────────────────────────────────────
 
-def _build_matrix(n, alpha, beta):
-    row = np.zeros(n)
-    row[0]  =  2*alpha + 6*beta
-    row[1]  = -(alpha  + 4*beta)
-    row[-1] = -(alpha  + 4*beta)
-    row[2]  =  beta
-    row[-2] =  beta
-    return circulant(row)
+def _adaptive_beta(image, snake, sigma, k=K_SENSITIVITY,
+                   beta_min=BETA_MIN, beta_max=BETA_MAX):
+    """Per-point β from local gradient magnitude (AdaptiveSnake formula)."""
+    gmag = compute_gradient_magnitude(image, sigma=sigma)
+    h, w = gmag.shape
+    y = np.clip(snake[:, 0], 0, h - 1)
+    x = np.clip(snake[:, 1], 0, w - 1)
+    local_g = map_coordinates(gmag, [y, x], order=1, mode="nearest")
+    beta = beta_max * np.exp(-k * local_g)
+    return np.clip(beta, beta_min, beta_max)
+
+
+def _build_adaptive_matrix(n, beta_array, alpha=ALPHA_SNAKE):
+    """Per-point pentadiagonal stiffness matrix (matches AdaptiveSnake)."""
+    A = np.zeros((n, n))
+    a = alpha
+    for i in range(n):
+        b = beta_array[i]
+        A[i,  i]         = 2 * a + 6 * b
+        A[i, (i+1) % n]  = -(a + 4 * b)
+        A[i, (i-1) % n]  = -(a + 4 * b)
+        A[i, (i+2) % n]  = b
+        A[i, (i-2) % n]  = b
+    return A
 
 
 def _reparameterize(snake):
@@ -144,7 +158,7 @@ def _reparameterize(snake):
 class SnakeCtrlEnv(gym.Env):
     """
     RL controls γ (force trust) and σ (edge scale) at each step.
-    The classical implicit-time-step snake handles point updates.
+    Underlying snake uses AdaptiveSnake's update rule with per-point β.
     """
 
     metadata = {"render_modes": []}
@@ -166,13 +180,16 @@ class SnakeCtrlEnv(gym.Env):
         self._gt_contour = None
         self._step_count = 0
         self._prev_iou   = 0.0
-        self._cur_gamma  = PRESETS[2, 0]   # start at balanced preset
+        self._cur_gamma  = PRESETS[2, 0]
         self._cur_sigma  = PRESETS[2, 1]
-        self._fy          = None
-        self._fx          = None
+
+        # Cached force field (invalidated when σ changes)
+        self._fy         = None
+        self._fx         = None
+        self._last_sigma = None
+
+        # Cached smoothed image for observation features
         self._img_smooth  = None
-        self._last_sigma  = None
-        self._inv         = None   # matrix inverse is fixed (α/β don't change)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -192,20 +209,12 @@ class SnakeCtrlEnv(gym.Env):
             self._snake      = init
 
         self._step_count = 0
-        self._cur_gamma  = PRESETS[2, 0]
+        self._cur_gamma  = PRESETS[2, 0]   # start at balanced preset
         self._cur_sigma  = PRESETS[2, 1]
-        self._fy          = None
-        self._fx          = None
-        self._img_smooth  = None
-        self._last_sigma  = None
-
-        # Matrix inverse depends only on α/β which never change — build once
-        n = len(self._snake)
-        A = _build_matrix(n, ALPHA_SNAKE, BETA_SNAKE)
-        # inv is re-scaled per gamma in step; precompute base inverse
-        self._A = A   # store A; recompute (A+γI)^{-1} only when γ changes
-        self._inv = None
-        self._last_gamma = None
+        self._fy         = None
+        self._fx         = None
+        self._last_sigma = None
+        self._img_smooth = None
 
         if self._gt_mask is not None:
             self._prev_iou = _fast_iou(self._snake, self._gt_mask, self._image.shape)
@@ -245,39 +254,54 @@ class SnakeCtrlEnv(gym.Env):
     # ── Internal ───────────────────────────────────────────────────────────────
 
     def _run_snake_iters(self, n_iters):
+        """
+        Run AdaptiveSnake update rule for n_iters with current γ and σ.
+        - Force field: compute_external_forces (edge-energy gradient) — same as AdaptiveSnake
+        - Matrix: per-point adaptive β — same as AdaptiveSnake
+        - RL controls γ and σ (temporal); β handles spatial adaptation internally
+        """
         snake = self._snake.copy()
         h, w  = self._image.shape
-
-        if self._last_sigma != self._cur_sigma:
-            self._img_smooth   = gaussian_filter(self._image, sigma=max(self._cur_sigma, 0.5))
-            gy, gx             = np.gradient(self._img_smooth.astype(float))
-            scale              = max(np.abs(gx).max(), np.abs(gy).max(), 1e-8)
-            self._fy, self._fx = gy / scale, gx / scale
-            self._last_sigma   = self._cur_sigma
-
-        if self._last_gamma != self._cur_gamma:
-            n = len(snake)
-            self._inv        = np.linalg.inv(self._A + self._cur_gamma * np.eye(n))
-            self._last_gamma = self._cur_gamma
-        inv = self._inv
-
         gamma = self._cur_gamma
+
+        # Recompute force field only when σ changes
+        if self._last_sigma != self._cur_sigma:
+            fy, fx = compute_external_forces(
+                self._image, sigma=self._cur_sigma, wline=0.0, wedge=1.0
+            )
+            fscale = max(np.abs(fx).max(), np.abs(fy).max(), 1e-8)
+            self._fy = fy / fscale
+            self._fx = fx / fscale
+            self._last_sigma = self._cur_sigma
+            self._img_smooth = None   # observation cache also invalidated
+
+        inv = None
+
         for it in range(n_iters):
-            y   = np.clip(snake[:, 0], 0, h - 1)
-            x   = np.clip(snake[:, 1], 0, w - 1)
+            # Recompute adaptive β matrix every UPDATE_EVERY iters
+            if it % UPDATE_EVERY == 0:
+                beta_arr = _adaptive_beta(self._image, snake, self._cur_sigma)
+                A   = _build_adaptive_matrix(len(snake), beta_arr)
+                inv = np.linalg.inv(A + gamma * np.eye(len(snake)))
+
+            y = np.clip(snake[:, 0], 0, h - 1)
+            x = np.clip(snake[:, 1], 0, w - 1)
             fyn = map_coordinates(self._fy, [y, x], order=1, mode="nearest")
             fxn = map_coordinates(self._fx, [y, x], order=1, mode="nearest")
+
             snake[:, 0] = np.clip(inv @ (gamma * snake[:, 0] + fyn), 0, h - 1)
             snake[:, 1] = np.clip(inv @ (gamma * snake[:, 1] + fxn), 0, w - 1)
+
             if (it + 1) % REPARAM_EVERY == 0:
                 snake = _reparameterize(snake)
 
         return snake
 
     def _observe(self):
-        # Reuse cached smoothed image (built in _run_snake_iters for same sigma)
         if self._img_smooth is None:
-            self._img_smooth = gaussian_filter(self._image, sigma=max(self._cur_sigma, 0.5))
+            self._img_smooth = gaussian_filter(
+                self._image.astype(float), sigma=max(self._cur_sigma, 0.5)
+            )
         mag, sdir, cdir = _gradient_features(self._img_smooth, self._snake, N_PROBES)
         stats    = _contour_stats(self._snake, self._image.shape)
         progress = np.array([self._step_count / MAX_STEPS], dtype=np.float32)
