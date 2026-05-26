@@ -1,11 +1,12 @@
 import numpy as np
-from skimage.segmentation import active_contour
-from skimage.filters import gaussian
+from scipy.ndimage import map_coordinates
+
+from .energy import compute_external_forces
 
 
 class ClassicalSnake:
     """
-    Classical parametric active contour (snake) using skimage's active_contour.
+    Classical parametric active contour (snake) with fixed regularization.
 
     Minimizes:
         E = alpha * E_elastic + beta * E_smooth + gamma * E_image
@@ -13,17 +14,23 @@ class ClassicalSnake:
     where internal energy terms enforce contour regularity and the external
     energy term attracts the contour toward image edges/lines.
 
+    The implementation uses the same implicit time-stepping structure as the
+    adaptive model, but keeps beta fixed for every contour point:
+
+        (A(alpha, beta) + gamma * I) v^{t+1} = gamma * v^t + F_ext(v^t)
+
     Reference: Kass, Witkin & Terzopoulos, "Snakes: Active Contour Models" (1988).
-    skimage docs: skimage.segmentation.active_contour
     """
 
     def __init__(
         self,
-        alpha=0.015,   # elasticity (resistance to stretching)
-        beta=0.1,      # bending stiffness (resistance to curvature)
-        gamma=0.001,   # time step / gradient descent step size
-        sigma=2.0,     # Gaussian smoothing for external energy
-        n_iter=2500,
+        alpha=0.02,    # elasticity (resistance to stretching)
+        beta=0.05,     # bending stiffness (resistance to curvature)
+        gamma=2.5,     # implicit time-step: step ≈ F/gamma
+        sigma=8.0,     # smoothing for external energy
+        n_iter=1600,
+        update_every=20,
+        reparam_every=50,
         wline=0.0,     # weight on line (intensity) energy
         wedge=1.0,     # weight on edge (gradient) energy
         boundary_condition="periodic",
@@ -33,9 +40,61 @@ class ClassicalSnake:
         self.gamma = gamma
         self.sigma = sigma
         self.n_iter = n_iter
+        self.update_every = update_every
+        self.reparam_every = reparam_every
         self.wline = wline
         self.wedge = wedge
         self.boundary_condition = boundary_condition
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_matrix(self, n):
+        """Build the fixed n x n internal-energy stiffness matrix."""
+        if self.boundary_condition != "periodic":
+            raise ValueError("ClassicalSnake currently supports only periodic contours")
+
+        A = np.zeros((n, n))
+        a = self.alpha
+        b = self.beta
+        for i in range(n):
+            A[i, i] = 2 * a + 6 * b
+            A[i, (i + 1) % n] = -(a + 4 * b)
+            A[i, (i - 1) % n] = -(a + 4 * b)
+            A[i, (i + 2) % n] = b
+            A[i, (i - 2) % n] = b
+        return A
+
+    @staticmethod
+    def _force_at_snake(fy, fx, snake, h, w):
+        """Bilinearly interpolate external forces at snake points."""
+        y = np.clip(snake[:, 0], 0, h - 1)
+        x = np.clip(snake[:, 1], 0, w - 1)
+        coords = [y, x]
+        return (
+            map_coordinates(fy, coords, order=1, mode="nearest"),
+            map_coordinates(fx, coords, order=1, mode="nearest"),
+        )
+
+    @staticmethod
+    def _reparameterize(snake):
+        """Redistribute snake points uniformly by arc length (closed curve)."""
+        closed = np.vstack([snake, snake[0]])
+        seg_lengths = np.linalg.norm(np.diff(closed, axis=0), axis=1)
+        arc = np.concatenate([[0.0], np.cumsum(seg_lengths)])
+        total = arc[-1]
+        if total < 1e-8:
+            return snake
+
+        uniform = np.linspace(0, total, len(snake), endpoint=False)
+        new_y = np.interp(uniform, arc, closed[:, 0])
+        new_x = np.interp(uniform, arc, closed[:, 1])
+        return np.column_stack([new_y, new_x])
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def fit(self, image, init_snake):
         """
@@ -49,42 +108,36 @@ class ClassicalSnake:
         Returns
         -------
         snake : (N, 2) ndarray, optimized contour in (row, col)
-        history : list of (N, 2) arrays sampled every 250 iterations
+        history : list of (N, 2) arrays sampled every update_every iterations
         """
-        img_smooth = gaussian(image.astype(float), sigma=self.sigma)
+        snake = init_snake.copy().astype(float)
+        n = len(snake)
+        h, w = image.shape
 
-        history = []
-        record_every = max(1, self.n_iter // 10)
-
-        # skimage active_contour expects (N, 2) in (row, col) = (y, x)
-        snake = active_contour(
-            img_smooth,
-            init_snake.copy(),
-            alpha=self.alpha,
-            beta=self.beta,
-            gamma=self.gamma,
-            w_line=self.wline,
-            w_edge=self.wedge,
-            max_num_iter=self.n_iter,
-            boundary_condition=self.boundary_condition,
+        fy, fx = compute_external_forces(
+            image, sigma=self.sigma, wline=self.wline, wedge=self.wedge
         )
+        fscale = max(np.abs(fx).max(), np.abs(fy).max(), 1e-8)
+        fx = fx / fscale
+        fy = fy / fscale
 
-        # skimage doesn't expose per-step history; simulate by running in chunks
-        chunk = max(1, self.n_iter // 10)
-        temp = init_snake.copy()
-        history.append(temp.copy())
-        for _ in range(10):
-            temp = active_contour(
-                img_smooth,
-                temp,
-                alpha=self.alpha,
-                beta=self.beta,
-                gamma=self.gamma,
-                w_line=self.wline,
-                w_edge=self.wedge,
-                max_num_iter=chunk,
-                boundary_condition=self.boundary_condition,
-            )
-            history.append(temp.copy())
+        A = self._build_matrix(n)
+        inv = np.linalg.inv(A + self.gamma * np.eye(n))
+        history = [snake.copy()]
+
+        for it in range(self.n_iter):
+            fyn, fxn = self._force_at_snake(fy, fx, snake, h, w)
+
+            yn = inv @ (self.gamma * snake[:, 0] + fyn)
+            xn = inv @ (self.gamma * snake[:, 1] + fxn)
+
+            snake[:, 0] = np.clip(yn, 0, h - 1)
+            snake[:, 1] = np.clip(xn, 0, w - 1)
+
+            if self.reparam_every > 0 and (it + 1) % self.reparam_every == 0:
+                snake = self._reparameterize(snake)
+
+            if (it + 1) % self.update_every == 0:
+                history.append(snake.copy())
 
         return snake, history

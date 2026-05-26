@@ -1,7 +1,5 @@
 import numpy as np
-from scipy.linalg import circulant
-from scipy.ndimage import map_coordinates, gaussian_filter
-from skimage.filters import gaussian
+from scipy.ndimage import map_coordinates
 
 from .energy import compute_gradient_magnitude, compute_external_forces
 
@@ -92,20 +90,16 @@ class AdaptiveSnake:
     @staticmethod
     def _reparameterize(snake):
         """Redistribute snake points uniformly by arc length (closed curve)."""
-        # Arc is measured from snake[0]; the closing segment snake[-1]→snake[0]
-        # is intentionally excluded from redistribution to avoid placing new
-        # points into potentially noisy inter-level regions.
-        diffs = np.diff(snake, axis=0, prepend=snake[[-1]])
-        arc = np.cumsum(np.linalg.norm(diffs, axis=1))
-        arc -= arc[0]   # arc[0]=0, arc[-1] = open-curve length (excl. closing segment)
+        closed = np.vstack([snake, snake[0]])
+        seg_lengths = np.linalg.norm(np.diff(closed, axis=0), axis=1)
+        arc = np.concatenate([[0.0], np.cumsum(seg_lengths)])
         total = arc[-1]
         if total < 1e-8:
             return snake
+
         uniform = np.linspace(0, total, len(snake), endpoint=False)
-        arc_ext = np.append(arc, total + arc[1])  # small extension for edge interpolation
-        snake_ext = np.vstack([snake, snake[0]])
-        new_y = np.interp(uniform, arc_ext, snake_ext[:, 0])
-        new_x = np.interp(uniform, arc_ext, snake_ext[:, 1])
+        new_y = np.interp(uniform, arc, closed[:, 0])
+        new_x = np.interp(uniform, arc, closed[:, 1])
         return np.column_stack([new_y, new_x])
 
     # ------------------------------------------------------------------

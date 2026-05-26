@@ -1,0 +1,6 @@
+Real data: ultrasound
+
+Method       IoU mean±std       Hausdorff          MeanDist
+--------------------------------------------------------------------
+Classical    0.574±0.070        34.4±9.5        14.18±4.59
+Adaptive     0.591±0.076        32.6±7.7        13.16±4.17

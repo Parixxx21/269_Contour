@@ -10,7 +10,7 @@ This project implements and evaluates four variants of the classical *snake* (pa
 
 | # | Method | Key idea |
 |---|--------|----------|
-| 1 | **Classical** | Baseline — `skimage.segmentation.active_contour` |
+| 1 | **Classical** | Baseline — fixed-β implicit active contour |
 | 2 | **Adaptive** | Spatially adaptive β(s) modulated by local gradient magnitude |
 | 3 | **Multiscale** | Coarse-to-fine Gaussian pyramid initialization |
 | 4 | **Combined** | Adaptive weighting **+** coarse-to-fine (proposed framework) |
@@ -25,7 +25,7 @@ This project implements and evaluates four variants of the classical *snake* (pa
 ├── requirements.txt
 │
 ├── src/                           # Core algorithm implementations
-│   ├── snake.py                   # Method 1: Classical (wraps skimage)
+│   ├── snake.py                   # Method 1: Classical fixed-β solver
 │   ├── adaptive_snake.py          # Method 2: Adaptive energy weighting
 │   ├── multiscale_snake.py        # Method 3: Coarse-to-fine
 │   ├── combined_snake.py          # Method 4: Combined (proposed)
@@ -62,16 +62,17 @@ E_total = α · E_elastic  +  β · E_smooth  +  E_image
 
 ### Method 1 — Classical Snake (`src/snake.py`)
 
-Uses `skimage.segmentation.active_contour` directly as the solver. The image is
-pre-smoothed with a Gaussian (σ=2) before computing the external energy. Fixed
-scalar weights α and β apply uniformly across all contour points.
+Uses the project's implicit active-contour solver with fixed scalar weights α
+and β applied uniformly across all contour points. External forces are computed
+from the shared energy model in `src/energy.py`, then bilinearly interpolated at
+the contour locations during each update.
 
 **Key parameters:**
-- `alpha` (0.015): elasticity — higher → snake resists stretching
-- `beta` (0.1): bending — higher → snake stays smoother
-- `gamma` (0.001): gradient-descent step size — smaller → more stable
-- `sigma` (2.0): Gaussian smoothing for external energy
-- `n_iter` (2500): number of optimization steps
+- `alpha` (0.02): elasticity — higher → snake resists stretching
+- `beta` (0.05): bending — higher → snake stays smoother
+- `gamma` (2.5): implicit time-step regularizer — higher → smaller steps, more stable
+- `sigma` (8.0): Gaussian smoothing for external energy
+- `n_iter` (1600): number of optimization steps
 
 ### Method 2 — Adaptive Snake (`src/adaptive_snake.py`)
 
@@ -96,27 +97,29 @@ matrix inversion (implicit time stepping):
 - `beta_min` (0.005): minimum bending stiffness (at strong edges)
 - `beta_max` (0.3): maximum bending stiffness (in flat regions)
 - `k` (5.0): sensitivity of β to gradient magnitude — higher → sharper transition
-- `gamma` (100.0): time-step regularizer — higher → smaller steps, more stable
+- `gamma` (5.0): time-step regularizer — higher → smaller steps, more stable
 - `update_every` (20): how often to recompute the adaptive matrix
 
 ### Method 3 — Multiscale Snake (`src/multiscale_snake.py`)
 
 Builds a **Gaussian pyramid** with `n_levels` images, σ going from `sigma_coarse`
-down to 0.5. The snake runs on each level, using the previous level's output
+down to `sigma_fine`. The snake runs on each level, using the previous level's output
 as the warm-start for the next level:
 
 ```
-Level 0 (σ=8): coarse, convex energy → escape local minima
-Level 1 (σ=4): medium detail
-Level 2 (σ=0.5): original-scale detail → precise boundary
+Level 0 (σ=8): coarse, smoother energy → escape local minima
+Level 1 (σ≈5.5): medium detail
+Level 2 (σ=3): finer detail → precise boundary
 ```
 
-Uses `skimage.active_contour` at each level with `n_iter / n_levels` iterations.
+Uses the same fixed-β implicit update as the classical model at each level.
 
 **Key parameters:**
+- `gamma` (3.0): implicit time-step regularizer
 - `sigma_coarse` (8.0): smoothing at the coarsest level
+- `sigma_fine` (3.0): smoothing at the finest level
 - `n_levels` (3): number of pyramid levels
-- Total iterations are split evenly across levels
+- `n_iter` (2400): total iterations split across levels, weighted toward coarse levels
 
 ### Method 4 — Combined Snake (`src/combined_snake.py`)
 
@@ -196,7 +199,7 @@ theta = np.linspace(0, 2*np.pi, 100, endpoint=False)
 init = np.column_stack([cy + 80*np.sin(theta), cx + 80*np.cos(theta)])
 
 model = CombinedSnake(alpha=0.015, beta_min=0.005, beta_max=0.3,
-                      k=5.0, gamma=100.0, sigma=2.0, n_iter=500,
+                      k=5.0, gamma=5.0, sigma=8.0, n_iter=500,
                       sigma_coarse=8.0, n_levels=3)
 snake, history = model.fit(image, init)
 ```
@@ -257,6 +260,6 @@ snake, history = model.fit(image, init)
 |---------|---------|---------|
 | numpy | ≥1.24 | Array operations |
 | scipy | ≥1.10 | Matrix inversion, interpolation |
-| scikit-image | ≥0.21 | `active_contour` baseline, contour utilities |
+| scikit-image | ≥0.21 | Gaussian smoothing, contour utilities |
 | matplotlib | ≥3.7 | Visualization |
 | pillow | ≥10.0 | Image I/O |

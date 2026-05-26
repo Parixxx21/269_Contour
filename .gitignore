@@ -1,6 +1,7 @@
 # Training outputs — timestamped run dirs, models, plots
 results/*
 !results/adaptive_results
+!results/classical_vs_adaptive_results
 
 # Datasets — large binary files, download separately
 data/Fluo-N2DL-HeLa/
