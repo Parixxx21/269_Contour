@@ -2,8 +2,8 @@ Synthetic benchmark  (5000 iters)
 
 Case                      Classical IoU     Adaptive IoU      FullAdaptive IoU  RL-Adaptive IoU 
 --------------------------------------------------------------------------------------------
-Clean Disk                0.979               0.979               0.979               0.993             
-Noisy Disk                0.979               0.978               0.979               0.992             
-Low-Contrast Ellipse      0.978               0.978               0.979               0.990             
-Noisy LC Ellipse          0.978               0.978               0.978               0.987             
-Noisy Star                0.919               0.924               0.919               0.956             
+Clean Disk                0.980               0.979               0.979               0.993             
+Noisy Disk                0.980               0.978               0.979               0.992             
+Low-Contrast Ellipse      0.979               0.978               0.979               0.990             
+Noisy LC Ellipse          0.979               0.978               0.978               0.987             
+Noisy Star                0.918               0.924               0.919               0.956             

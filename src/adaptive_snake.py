@@ -26,12 +26,12 @@ class AdaptiveSnake:
 
     def __init__(
         self,
-        alpha=0.015,
-        beta_min=0.005,
-        beta_max=0.05,
-        k=10.0,           # sensitivity to gradient magnitude
-        gamma=5.0,        # implicit time-step (global)
-        sigma=6.0,        # smoothing for external energy
+        alpha=0.015,       # w1: elasticity weight (global, fixed)
+        beta_min=0.005,    # w2_min: lower bound of adaptive bending stiffness
+        beta_max=0.05,     # w2_max: upper bound of adaptive bending stiffness
+        k=10.0,            # sensitivity of w2 to local gradient magnitude
+        gamma=5.0,         # D/Δt where D = γI, scalar damping matrix (global, fixed)
+        sigma=6.0,         # Gaussian smoothing scale for external potential P(x,y)
         n_iter=800,
         update_every=10,  # recompute adaptive matrix every N iterations
         reparam_every=50, # arc-length redistribution every N iterations (0 = off)
@@ -55,7 +55,7 @@ class AdaptiveSnake:
     # ------------------------------------------------------------------
 
     def _adaptive_beta(self, image, snake):
-        """Per-point β: β_min + (β_max - β_min)*exp(-k*|∇I|)."""
+        """Per-point w2(u): w2_min + (w2_max - w2_min)*exp(-k*|∇I(c(u))|)."""
         gmag = compute_gradient_magnitude(image, sigma=self.sigma)
         h, w = gmag.shape
         y = np.clip(snake[:, 0], 0, h - 1)
@@ -65,10 +65,10 @@ class AdaptiveSnake:
 
     def _build_matrix(self, n, beta_array):
         """
-        Build the n×n position-dependent stiffness matrix.
-        Row i uses local alpha and beta_i (local stencil approximation).
+        Build K: n×n position-dependent stiffness matrix.
+        w1 (alpha) is global; w2 (beta_array) varies per point.
         """
-        A = np.zeros((n, n))
+        A = np.zeros((n, n))  # K in Kass et al.
         a = self.alpha
         for i in range(n):
             b = beta_array[i]
@@ -142,9 +142,9 @@ class AdaptiveSnake:
 
         for it in range(self.n_iter):
             if it % self.update_every == 0:
-                beta_arr = self._adaptive_beta(image, snake)
-                A = self._build_matrix(n, beta_arr)
-                inv = np.linalg.inv(A + self.gamma * np.eye(n))
+                beta_arr = self._adaptive_beta(image, snake)   # per-point w2(u)
+                A = self._build_matrix(n, beta_arr)            # K: position-dependent stiffness
+                inv = np.linalg.inv(A + self.gamma * np.eye(n))  # (K + D/Δt)^{-1}
 
             fyn, fxn = self._force_at_snake(fy, fx, snake, h, w)
 

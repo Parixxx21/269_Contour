@@ -36,9 +36,9 @@ class FullAdaptiveSnake(AdaptiveSnake):
         beta_min=0.005,
         beta_max=0.3,
         k=5.0,
-        gamma_min=2.0,
-        gamma_max=10.0,
-        k_gamma=5.0,
+        gamma_min=2.0,   # D/Δt lower bound: small damping near edges (fast response)
+        gamma_max=10.0,  # D/Δt upper bound: large damping in flat regions (stable)
+        k_gamma=5.0,     # sensitivity of per-point damping to gradient magnitude
         sigma=8.0,
         n_iter=2500,
         update_every=20,
@@ -64,7 +64,7 @@ class FullAdaptiveSnake(AdaptiveSnake):
         self.k_gamma   = k_gamma
 
     def _adaptive_gamma(self, local_g):
-        """Per-point γ: γ_min + (γ_max - γ_min)*exp(-k_γ*|∇I|)."""
+        """Per-point D/Δt: extends scalar damping D=γI to diagonal diag(γ_i), i=0..N-1."""
         return self.gamma_min + (self.gamma_max - self.gamma_min) * np.exp(-self.k_gamma * local_g)
 
     def fit(self, image, init_snake):
@@ -89,10 +89,10 @@ class FullAdaptiveSnake(AdaptiveSnake):
                 x_c = np.clip(snake[:, 1], 0, w - 1)
                 local_g  = map_coordinates(gmag, [y_c, x_c], order=1, mode="nearest")
 
-                beta_arr  = self._adaptive_beta(image, snake)
-                gamma_arr = self._adaptive_gamma(local_g)
-                A   = self._build_matrix(n, beta_arr)
-                inv = np.linalg.inv(A + np.diag(gamma_arr))
+                beta_arr  = self._adaptive_beta(image, snake)    # per-point w2(u)
+                gamma_arr = self._adaptive_gamma(local_g)        # per-point D/Δt diagonal
+                A   = self._build_matrix(n, beta_arr)            # K: position-dependent stiffness
+                inv = np.linalg.inv(A + np.diag(gamma_arr))      # (K + diag(D/Δt))^{-1}
 
             fyn, fxn = self._force_at_snake(fy, fx, snake, h, w)
 

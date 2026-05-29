@@ -33,6 +33,7 @@ from skimage.measure import find_contours
 from experiments.synthetic_images import generate_test_cases
 from extensions.adaptive_rl.env import SnakeCtrlEnv, _fast_iou
 from extensions.rl_snake_env import _circular_snake
+from src.snake import ClassicalSnake
 from src.adaptive_snake import AdaptiveSnake
 from src.full_adaptive_snake import FullAdaptiveSnake
 from src.evaluation import evaluate_snake
@@ -164,12 +165,7 @@ def load_ultrasound(n_images=20):
 # ── Method builders ────────────────────────────────────────────────────────────
 
 def build_classical(n_iter):
-    # Classical = same force + same optimizer as Adaptive, but β is fixed globally (no spatial adaptation)
-    # Using AdaptiveSnake with beta_min=beta_max gives constant β everywhere
-    return AdaptiveSnake(alpha=0.015, beta_min=0.1, beta_max=0.1,
-                         k=5.0, gamma=5.0, sigma=8.0, n_iter=n_iter,
-                         update_every=n_iter + 1,  # matrix never recomputed (β is fixed)
-                         wedge=1.0)
+    return ClassicalSnake(n_iter=n_iter, wedge=1.0)
 
 def build_adaptive(n_iter):
     return AdaptiveSnake(alpha=0.015, beta_min=0.005, beta_max=0.3,
@@ -458,12 +454,14 @@ def plot_real(vis_samples, all_results, tag, out_dir):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model",      default=DEFAULT_MODEL)
+    parser.add_argument("--out-dir",    default=OUT_DIR)
     parser.add_argument("--n-real",     type=int, default=20)
     parser.add_argument("--skip-synth", action="store_true")
     parser.add_argument("--skip-real",  action="store_true")
     args = parser.parse_args()
 
-    os.makedirs(OUT_DIR, exist_ok=True)
+    out_dir = args.out_dir
+    os.makedirs(out_dir, exist_ok=True)
 
     model_path = args.model.replace(".zip", "")
     print(f"Loading RL model: {model_path}.zip")
@@ -472,19 +470,19 @@ def main():
     if not args.skip_synth:
         print("\n=== Synthetic benchmark ===")
         cases, syn_results, syn_snakes = run_synthetic(model)
-        plot_synthetic(cases, syn_results, syn_snakes, OUT_DIR)
+        plot_synthetic(cases, syn_results, syn_snakes, out_dir)
 
     if not args.skip_real:
         print(f"\n=== Real data: Fluo-HeLa (n={args.n_real}, {REAL_N_ITERS} iters) ===")
         fluo_samples = load_fluo_hela(n_images=args.n_real)
         vis, real_results = run_real(model, fluo_samples, "fluo", n_iters=REAL_N_ITERS)
-        plot_real(vis, real_results, "fluo", OUT_DIR)
+        plot_real(vis, real_results, "fluo", out_dir)
 
         print(f"\n=== Real data: Ultrasound (n={args.n_real}, {US_N_ITERS} iters) ===")
         try:
             us_samples = load_ultrasound(n_images=args.n_real)
             vis_us, us_results = run_real(model, us_samples, "ultrasound", n_iters=US_N_ITERS)
-            plot_real(vis_us, us_results, "ultrasound", OUT_DIR)
+            plot_real(vis_us, us_results, "ultrasound", out_dir)
         except FileNotFoundError as e:
             print(f"  Skipped: {e}")
             print("  → Download train.zip from kaggle.com/c/ultrasound-nerve-segmentation")
