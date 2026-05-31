@@ -69,9 +69,8 @@ def build_methods():
         ),
         "Combined": CombinedSnake(
             alpha=0.015, beta_min=0.005, beta_max=0.3, k=5.0,
-            gamma=5.0, sigma=8.0, n_iter=2000, update_every=20,
-            reparam_every=50, sigma_coarse=4.0, sigma_fine=3.0,
-            n_levels=3, wedge=1.0
+            gamma=5.0, sigma=8.0, n_iter=2500, update_every=20,
+            reparam_every=50, n_levels=3, wedge=1.0
         ),
     }
 
