@@ -6,6 +6,7 @@ results/rl_ctrl/*
 !results/rl_ctrl/20260524_150224_v4/
 results/rl_ctrl/20260524_150224_v4/*
 !results/rl_ctrl/20260524_150224_v4/dqn_ctrl.zip
+!results/combined_results/
 
 # Datasets — large binary files, download separately
 data/Fluo-N2DL-HeLa/

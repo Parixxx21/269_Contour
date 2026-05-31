@@ -53,7 +53,7 @@ COLORS = {
 }
 
 SYNTH_N_ITERS  = 5000
-REAL_N_ITERS   = 5500
+REAL_N_ITERS   = 8000
 US_N_ITERS     = 8000   # ultrasound needs more iters (weaker edges)
 RL_N_CHAINS    = 2      # chain 2 episodes → ~5000 iters total
 
@@ -458,6 +458,8 @@ def main():
     parser.add_argument("--n-real",     type=int, default=20)
     parser.add_argument("--skip-synth", action="store_true")
     parser.add_argument("--skip-real",  action="store_true")
+    parser.add_argument("--skip-fluo",  action="store_true")
+    parser.add_argument("--skip-us",    action="store_true")
     args = parser.parse_args()
 
     out_dir = args.out_dir
@@ -473,19 +475,21 @@ def main():
         plot_synthetic(cases, syn_results, syn_snakes, out_dir)
 
     if not args.skip_real:
-        print(f"\n=== Real data: Fluo-HeLa (n={args.n_real}, {REAL_N_ITERS} iters) ===")
-        fluo_samples = load_fluo_hela(n_images=args.n_real)
-        vis, real_results = run_real(model, fluo_samples, "fluo", n_iters=REAL_N_ITERS)
-        plot_real(vis, real_results, "fluo", out_dir)
+        if not args.skip_fluo:
+            print(f"\n=== Real data: Fluo-HeLa (n={args.n_real}, {REAL_N_ITERS} iters) ===")
+            fluo_samples = load_fluo_hela(n_images=args.n_real)
+            vis, real_results = run_real(model, fluo_samples, "fluo", n_iters=REAL_N_ITERS)
+            plot_real(vis, real_results, "fluo", out_dir)
 
-        print(f"\n=== Real data: Ultrasound (n={args.n_real}, {US_N_ITERS} iters) ===")
-        try:
-            us_samples = load_ultrasound(n_images=args.n_real)
-            vis_us, us_results = run_real(model, us_samples, "ultrasound", n_iters=US_N_ITERS)
-            plot_real(vis_us, us_results, "ultrasound", out_dir)
-        except FileNotFoundError as e:
-            print(f"  Skipped: {e}")
-            print("  → Download train.zip from kaggle.com/c/ultrasound-nerve-segmentation")
+        if not args.skip_us:
+            print(f"\n=== Real data: Ultrasound (n={args.n_real}, {US_N_ITERS} iters) ===")
+            try:
+                us_samples = load_ultrasound(n_images=args.n_real)
+                vis_us, us_results = run_real(model, us_samples, "ultrasound", n_iters=US_N_ITERS)
+                plot_real(vis_us, us_results, "ultrasound", out_dir)
+            except FileNotFoundError as e:
+                print(f"  Skipped: {e}")
+                print("  → Download train.zip from kaggle.com/c/ultrasound-nerve-segmentation")
             print("    and extract to data/ultrasound-nerve-segmentation/train/")
 
 

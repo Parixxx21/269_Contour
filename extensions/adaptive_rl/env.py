@@ -68,7 +68,7 @@ N_PROBES          = 32
 N_POINTS          = 100
 MAX_STEPS         = 50        # RL decisions per episode
 ITERS_PER_STEP    = 50        # snake iters per RL action  (50×50 = 2500 total)
-UPDATE_EVERY      = 10        # recompute adaptive β matrix every N iters
+UPDATE_EVERY      = 20        # recompute adaptive β matrix every N iters
 REPARAM_EVERY     = 50        # arc-length reparam inside each batch
 ALPHA_SNAKE       = 0.015     # elasticity — fixed
 BETA_MIN          = 0.005     # adaptive β lower bound (matches AdaptiveSnake)
@@ -120,7 +120,7 @@ def _adaptive_beta(image, snake, sigma, k=K_SENSITIVITY,
     y = np.clip(snake[:, 0], 0, h - 1)
     x = np.clip(snake[:, 1], 0, w - 1)
     local_g = map_coordinates(gmag, [y, x], order=1, mode="nearest")
-    beta = beta_max * np.exp(-k * local_g)
+    beta = beta_min + (beta_max - beta_min) * np.exp(-k * local_g)
     return np.clip(beta, beta_min, beta_max)
 
 

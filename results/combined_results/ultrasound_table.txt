@@ -1,0 +1,5 @@
+Real data: ultrasound  (n=20, 8000 iters)
+
+Method          IoU mean±std          Hausdorff             MeanDist
+------------------------------------------------------------------------
+Combined        0.442±0.127            62.9±28.0            23.76±11.75
