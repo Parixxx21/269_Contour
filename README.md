@@ -156,6 +156,42 @@ Training uses stable-baselines3 DQN on procedurally generated synthetic images.
 
 ---
 
+## Datasets
+
+Results are fully reproducible only if the datasets are placed in the exact directory structure below.
+
+### Fluo-N2DL-HeLa (Cell Tracking Challenge)
+
+1. Download from [celltrackingchallenge.net](http://celltrackingchallenge.net/2d-datasets/) → **Fluo-N2DL-HeLa**
+2. Extract so the layout matches:
+
+```
+data/Fluo-N2DL-HeLa/Fluo-N2DL-HeLa/
+├── 01/          # raw frames: t000.tif, t001.tif, ...
+├── 01_GT/SEG/   # segmentation masks: man_seg000.tif, ...
+├── 02/
+└── 02_GT/SEG/
+```
+
+### Ultrasound Nerve Segmentation (Kaggle)
+
+1. Download from [kaggle.com/c/ultrasound-nerve-segmentation](https://www.kaggle.com/c/ultrasound-nerve-segmentation) → `train.zip`
+2. Extract so the layout matches:
+
+```
+data/ultrasound-nerve-segmentation/train/
+├── 1_1.tif
+├── 1_1_mask.tif
+├── 1_2.tif
+├── 1_2_mask.tif
+└── ...
+```
+
+> **Note:** Images with empty masks (no visible nerve) are automatically skipped during loading.
+> The scripts load the first `n` valid samples in sorted filename order — directory contents must match for results to be reproducible across machines.
+
+---
+
 ## Setup
 
 ```bash
