@@ -7,6 +7,8 @@ results/rl_ctrl/*
 results/rl_ctrl/20260524_150224_v4/*
 !results/rl_ctrl/20260524_150224_v4/dqn_ctrl.zip
 !results/combined_results/
+!results/rl_ctrl/20260531_112037_v6/
+!results/adaptive_results_v6/
 
 # Datasets — large binary files, download separately
 data/Fluo-N2DL-HeLa/

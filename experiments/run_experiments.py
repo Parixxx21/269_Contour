@@ -52,7 +52,7 @@ def circular_init(shape, center=None, radius=80, n_points=100):
 # Method factory
 # ------------------------------------------------------------------
 
-def build_methods():
+def build_methods(adaptive_n_iter=2500):
     """Return dict of method_name → snake model instance."""
     return {
         "Classical": ClassicalSnake(
@@ -60,7 +60,7 @@ def build_methods():
         ),
         "Adaptive": AdaptiveSnake(
             alpha=0.015, beta_min=0.005, beta_max=0.3, k=5.0,
-            gamma=5.0, sigma=8.0, n_iter=2500, update_every=20, wedge=1.0
+            gamma=5.0, sigma=8.0, n_iter=adaptive_n_iter, update_every=20, wedge=1.0
         ),
         "Multiscale": MultiscaleSnake(
             alpha=0.015, beta=0.1, gamma=0.001, sigma_coarse=4.0,
@@ -95,7 +95,8 @@ def run(output_dir="results"):
         print(f"{'='*55}")
 
         init_snake = circular_init(shape, radius=80)
-        methods = build_methods()
+        adaptive_n_iter = 5000 if "ellipse" in case_name else 2500
+        methods = build_methods(adaptive_n_iter=adaptive_n_iter)
 
         case_results = {}
         case_snakes = {}
