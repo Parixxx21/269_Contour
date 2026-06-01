@@ -1,5 +1,6 @@
 """
-FullAdaptiveSnake: per-point α_i, β_i, γ_i all modulated by local gradient.
+FullAdaptiveSnake: per-point β_i, γ_i all modulated by local gradient.
+α is still global (controls overall smoothness), but both β and γ vary spatially:
 
 Extends AdaptiveSnake by also making γ spatially adaptive:
 

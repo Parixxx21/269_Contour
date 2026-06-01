@@ -68,7 +68,7 @@ CASE_LABELS = {
 }
 
 
-# ── Data loaders ───────────────────────────────────────────────────────────────
+# data loaders
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -162,7 +162,7 @@ def load_ultrasound(n_images=20):
     return samples
 
 
-# ── Method builders ────────────────────────────────────────────────────────────
+# Method builders
 
 def build_classical(n_iter):
     return ClassicalSnake(n_iter=n_iter, wedge=1.0)
@@ -178,7 +178,7 @@ def build_full_adaptive(n_iter):
                              sigma=8.0, n_iter=n_iter, update_every=20, wedge=1.0)
 
 
-# ── RL helpers ─────────────────────────────────────────────────────────────────
+# rl-related helpers
 
 def _rl_run_chained(model, env, init_snake=None):
     """Run RL_N_CHAINS episodes end-to-end; warm-start with init_snake if given."""
@@ -201,7 +201,7 @@ def _rl_run_chained(model, env, init_snake=None):
             obs = env._observe()
 
 
-# ── Synthetic evaluation ───────────────────────────────────────────────────────
+# synthetic eval helpers
 
 def run_synthetic(model):
     cases = generate_test_cases()
@@ -238,7 +238,7 @@ def run_synthetic(model):
     return cases, results, snakes
 
 
-# ── Real data evaluation ───────────────────────────────────────────────────────
+# real data eval helpers
 
 def run_real(model, samples, tag, n_iters=None):
     """Run all 4 methods on a list of pre-loaded samples. Returns (vis_samples, all_results)."""
@@ -288,8 +288,7 @@ def run_real(model, samples, tag, n_iters=None):
     return vis_samples, all_results
 
 
-# ── Plotting ───────────────────────────────────────────────────────────────────
-
+#  plot helpers
 def _metric_bars(ax, xlabels, method_vals, offset_scale=0.01):
     n_m   = len(METHODS)
     w     = 0.8 / n_m
@@ -448,8 +447,6 @@ def plot_real(vis_samples, all_results, tag, out_dir):
     with open(p, "w") as f: f.write("\n".join(lines))
     print("\n".join(lines)); print(f"Table: {p}")
 
-
-# ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()

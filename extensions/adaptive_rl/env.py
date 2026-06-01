@@ -63,7 +63,7 @@ from extensions.rl_snake_env import (
     _random_case, _circular_snake, _gradient_features, _contour_stats,
 )
 
-# ── Constants ──────────────────────────────────────────────────────────────────
+# Consts
 N_PROBES          = 32
 N_POINTS          = 100
 MAX_STEPS         = 50        # RL decisions per episode
@@ -94,7 +94,7 @@ GAMMA_RANGE = (1.0,  20.0)
 SIGMA_RANGE = (2.0,   8.0)
 
 
-# ── Fast IoU (no Hausdorff) — used during training for speed ─────────────────
+#  Fast IoU (no Hausdorff) — it is used during training for speed 
 
 def _fast_iou(snake, gt_mask, shape):
     """Rasterise snake polygon and compute pixel-wise IoU. ~0.3ms vs 3.8ms."""
@@ -110,7 +110,7 @@ def _fast_iou(snake, gt_mask, shape):
     return float(inter) / (float(union) + 1e-8)
 
 
-# ── Snake helpers ──────────────────────────────────────────────────────────────
+# Adaptive Snake helpers 
 
 def _adaptive_beta(image, snake, sigma, k=K_SENSITIVITY,
                    beta_min=BETA_MIN, beta_max=BETA_MAX):
@@ -153,7 +153,7 @@ def _reparameterize(snake):
     return np.column_stack([new_y, new_x])
 
 
-# ── Environment ────────────────────────────────────────────────────────────────
+# Environment controls
 
 class SnakeCtrlEnv(gym.Env):
     """
@@ -251,7 +251,6 @@ class SnakeCtrlEnv(gym.Env):
 
         return self._observe(), float(reward), done, truncated, {}
 
-    # ── Internal ───────────────────────────────────────────────────────────────
 
     def _run_snake_iters(self, n_iters):
         """

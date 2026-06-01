@@ -50,9 +50,8 @@ class AdaptiveSnake:
         self.wline = wline
         self.wedge = wedge
 
-    # ------------------------------------------------------------------
+
     # Internal helpers
-    # ------------------------------------------------------------------
 
     def _adaptive_beta(self, image, snake):
         """Per-point w2(u): w2_min + (w2_max - w2_min)*exp(-k*|∇I(c(u))|)."""
@@ -108,9 +107,6 @@ class AdaptiveSnake:
         new_x = np.interp(uniform, arc_ext, snake_ext[:, 1])
         return np.column_stack([new_y, new_x])
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def fit(self, image, init_snake):
         """
