@@ -55,15 +55,16 @@ def main():
     init = circular_init(shape)
 
     models = {
-        "Classical": ClassicalSnake(alpha=0.015, beta=0.1, gamma=0.001,
-                                    sigma=2.0, n_iter=2500),
+        "Classical": ClassicalSnake(alpha=0.015, beta=0.1, gamma=5.0,
+                                    sigma=8.0, n_iter=2500),
         "Adaptive":  AdaptiveSnake(alpha=0.015, beta_min=0.005, beta_max=0.3,
-                                   k=5.0, gamma=100.0, sigma=2.0, n_iter=500),
-        "Multiscale": MultiscaleSnake(alpha=0.015, beta=0.1, gamma=0.001,
-                                      sigma_coarse=8.0, n_levels=3, n_iter=2500),
+                                   k=5.0, gamma=5.0, sigma=8.0, n_iter=2000,
+                                   reparam_every=50),
+        "Multiscale": MultiscaleSnake(alpha=0.015, beta=0.1, gamma=5.0,
+                                      sigma=8.0, n_levels=3, n_iter=2500),
         "Combined":  CombinedSnake(alpha=0.015, beta_min=0.005, beta_max=0.3,
-                                   k=5.0, gamma=100.0, sigma=2.0, n_iter=500,
-                                   sigma_coarse=8.0, n_levels=3),
+                                   k=5.0, gamma=5.0, sigma=8.0, n_iter=2000,
+                                   reparam_every=50, n_levels=3),
     }
 
     results, snakes = {}, {}

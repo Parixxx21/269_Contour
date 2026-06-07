@@ -13,29 +13,28 @@ class AdaptiveSnake:
     The bending stiffness beta_i at each contour point is modulated by the
     local gradient magnitude:
 
-        beta_i = beta_max * exp(-k * |∇I(v_i)|)
+        beta_i = beta_min + (beta_max - beta_min) * exp(-k * |∇I(v_i)|)
 
     Near strong edges  → small beta  (contour deforms freely to track details)
-    In flat/noisy areas → large beta (strong regularization prevents drift)
+    In flat/noisy areas → large beta  (strong regularization prevents drift)
 
-    The elastic weight alpha remains fixed.  The update rule uses implicit
-    time-stepping:
+    The elastic weight alpha and time-step gamma remain fixed globally.
+    Update rule (implicit time-stepping):
 
         (A(beta) + gamma * I) v^{t+1} = gamma * v^t + F_ext(v^t)
-
-    where A(beta) is the position-dependent pentadiagonal stiffness matrix.
     """
 
     def __init__(
         self,
-        alpha=0.015,
-        beta_min=0.005,
-        beta_max=0.3,
-        k=5.0,           # sensitivity to gradient magnitude
-        gamma=100.0,     # implicit time-step (larger = more stable, smaller steps)
-        sigma=2.0,       # smoothing for external energy
-        n_iter=500,
-        update_every=20, # recompute adaptive matrix every N iterations
+        alpha=0.015,       # w1: elasticity weight (global, fixed)
+        beta_min=0.005,    # w2_min: lower bound of adaptive bending stiffness
+        beta_max=0.05,     # w2_max: upper bound of adaptive bending stiffness
+        k=10.0,            # sensitivity of w2 to local gradient magnitude
+        gamma=5.0,         # D/Δt where D = γI, scalar damping matrix (global, fixed)
+        sigma=6.0,         # Gaussian smoothing scale for external potential P(x,y)
+        n_iter=800,
+        update_every=10,  # recompute adaptive matrix every N iterations
+        reparam_every=50, # arc-length redistribution every N iterations (0 = off)
         wline=0.0,
         wedge=1.0,
     ):
@@ -47,29 +46,28 @@ class AdaptiveSnake:
         self.sigma = sigma
         self.n_iter = n_iter
         self.update_every = update_every
+        self.reparam_every = reparam_every
         self.wline = wline
         self.wedge = wedge
 
-    # ------------------------------------------------------------------
+
     # Internal helpers
-    # ------------------------------------------------------------------
 
     def _adaptive_beta(self, image, snake):
-        """Return per-point beta values based on local gradient magnitude."""
+        """Per-point w2(u): w2_min + (w2_max - w2_min)*exp(-k*|∇I(c(u))|)."""
         gmag = compute_gradient_magnitude(image, sigma=self.sigma)
         h, w = gmag.shape
         y = np.clip(snake[:, 0], 0, h - 1)
         x = np.clip(snake[:, 1], 0, w - 1)
         local_g = map_coordinates(gmag, [y, x], order=1, mode="nearest")
-        beta = self.beta_max * np.exp(-self.k * local_g)
-        return np.clip(beta, self.beta_min, self.beta_max)
+        return self.beta_min + (self.beta_max - self.beta_min) * np.exp(-self.k * local_g)
 
     def _build_matrix(self, n, beta_array):
         """
-        Build the n×n position-dependent stiffness matrix.
-        Row i uses local alpha and beta_i (local stencil approximation).
+        Build K: n×n position-dependent stiffness matrix.
+        w1 (alpha) is global; w2 (beta_array) varies per point.
         """
-        A = np.zeros((n, n))
+        A = np.zeros((n, n))  # K in Kass et al.
         a = self.alpha
         for i in range(n):
             b = beta_array[i]
@@ -90,9 +88,25 @@ class AdaptiveSnake:
             map_coordinates(fx, coords, order=1, mode="nearest"),
         )
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _reparameterize(snake):
+        """Redistribute snake points uniformly by arc length (closed curve)."""
+        # Arc is measured from snake[0]; the closing segment snake[-1]→snake[0]
+        # is intentionally excluded from redistribution to avoid placing new
+        # points into potentially noisy inter-level regions.
+        diffs = np.diff(snake, axis=0, prepend=snake[[-1]])
+        arc = np.cumsum(np.linalg.norm(diffs, axis=1))
+        arc -= arc[0]   # arc[0]=0, arc[-1] = open-curve length (excl. closing segment)
+        total = arc[-1]
+        if total < 1e-8:
+            return snake
+        uniform = np.linspace(0, total, len(snake), endpoint=False)
+        arc_ext = np.append(arc, total + arc[1])  # small extension for edge interpolation
+        snake_ext = np.vstack([snake, snake[0]])
+        new_y = np.interp(uniform, arc_ext, snake_ext[:, 0])
+        new_x = np.interp(uniform, arc_ext, snake_ext[:, 1])
+        return np.column_stack([new_y, new_x])
+
 
     def fit(self, image, init_snake):
         """
@@ -124,9 +138,9 @@ class AdaptiveSnake:
 
         for it in range(self.n_iter):
             if it % self.update_every == 0:
-                beta_arr = self._adaptive_beta(image, snake)
-                A = self._build_matrix(n, beta_arr)
-                inv = np.linalg.inv(A + self.gamma * np.eye(n))
+                beta_arr = self._adaptive_beta(image, snake)   # per-point w2(u)
+                A = self._build_matrix(n, beta_arr)            # K: position-dependent stiffness
+                inv = np.linalg.inv(A + self.gamma * np.eye(n))  # (K + D/Δt)^{-1}
 
             fyn, fxn = self._force_at_snake(fy, fx, snake, h, w)
 
@@ -135,6 +149,9 @@ class AdaptiveSnake:
 
             snake[:, 0] = np.clip(yn, 0, h - 1)
             snake[:, 1] = np.clip(xn, 0, w - 1)
+
+            if self.reparam_every > 0 and (it + 1) % self.reparam_every == 0:
+                snake = self._reparameterize(snake)
 
             if (it + 1) % self.update_every == 0:
                 history.append(snake.copy())
