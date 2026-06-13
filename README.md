@@ -24,9 +24,11 @@ This project implements and evaluates four variants of the classical *snake* (pa
 ├── requirements.txt
 │
 ├── src/                           # Core algorithm implementations
-│   ├── snake.py                   # Classical snake (skimage wrapper, legacy)
+│   ├── snake.py                   # Classical snake (implicit solver, fixed β)
 │   ├── adaptive_snake.py          # Method 1 & 2: Classical (fixed β) and Adaptive (spatial β)
 │   ├── full_adaptive_snake.py     # Method 3: FullAdaptive (spatial β + γ)
+│   ├── multiscale_snake.py        # Coarse-to-fine Gaussian pyramid snake (To be completed)
+│   ├── combined_snake.py          # Combined multiscale + spatially adaptive snake (To be completed)
 │   ├── energy.py                  # Shared energy + force field utilities
 │   └── evaluation.py             # IoU, Hausdorff, mean contour distance
 │
@@ -70,16 +72,16 @@ E_total = α · E_elastic  +  β · E_smooth  +  E_image
 - **E_smooth**  = Σ |v_i − 2v_{i−1} + v_{i−2}|²  — resists bending (controls curvature)
 - **E_image**   = −|∇(G_σ * I)|²  — attracts contour toward edges
 
-### Method 1 — Classical Snake (`src/adaptive_snake.py`, fixed β)
+### Method 1 — Classical Snake (`src/snake.py`)
 
 Uses the same implicit-time-step solver and edge force as Adaptive, but with
-β fixed uniformly across all contour points (`beta_min = beta_max = 0.1`).
-This provides a fair baseline that isolates the effect of spatial β adaptation.
+β fixed uniformly across all contour points. This provides a fair baseline
+that isolates the effect of spatial β adaptation.
 
 **Key parameters:**
-- `alpha` (0.015): elasticity
-- `beta` (0.1): fixed bending stiffness, uniform everywhere
-- `gamma` (5.0): time-step regularizer
+- `alpha` (0.02): elasticity
+- `beta` (0.05): fixed bending stiffness, uniform everywhere
+- `gamma` (2.5): time-step regularizer
 - `sigma` (8.0): Gaussian smoothing for external energy
 - `n_iter` (5000): optimization steps
 
@@ -212,12 +214,15 @@ pip install -r requirements.txt
 
 ```bash
 python experiments/adaptive_results.py
-python experiments/adaptive_results.py --n-real 20       # more real images
+python experiments/adaptive_results.py --n-real 20       # number of real images
 python experiments/adaptive_results.py --skip-synth      # real data only
 python experiments/adaptive_results.py --skip-real       # synthetic only
+python experiments/adaptive_results.py --skip-fluo       # skip Fluo-HeLa
+python experiments/adaptive_results.py --skip-us         # skip Ultrasound
+python experiments/adaptive_results.py --out-dir results/my_run  # custom output dir
 ```
 
-Saves to `results/adaptive_results/`:
+Saves to `results/adaptive_results/` (or `--out-dir`):
 - `synthetic_visual.png` / `synthetic_metrics.png` / `synthetic_table.txt`
 - `fluo_visual.png` / `fluo_metrics.png` / `fluo_table.txt`
 - `ultrasound_visual.png` / `ultrasound_metrics.png` / `ultrasound_table.txt`
@@ -225,7 +230,9 @@ Saves to `results/adaptive_results/`:
 ### Train the RL agent
 
 ```bash
-python extensions/adaptive_rl/train.py
+python extensions/adaptive_rl/train.py                   # 400k steps, auto-tagged timestamp
+python extensions/adaptive_rl/train.py --steps 200000    # custom step count
+python extensions/adaptive_rl/train.py --tag v7          # custom tag for output dir
 ```
 
 ### Run Adaptive snake on a custom image
@@ -245,6 +252,30 @@ init = np.column_stack([cy + 80*np.sin(theta), cx + 80*np.cos(theta)])
 
 snake, history = model.fit(image, init)
 ```
+
+---
+
+## Reproducing Results
+
+The committed results in `results/adaptive_results/` were generated with the v6 RL model (`results/rl_ctrl/20260531_112037_v6/dqn_ctrl.zip`). To reproduce:
+
+```bash
+# 1. Synthetic benchmark only (no datasets required)
+python experiments/adaptive_results.py \
+  --model results/rl_ctrl/20260531_112037_v6/dqn_ctrl \
+  --out-dir results/adaptive_results_v6 \
+  --skip-real
+
+# 2. Full benchmark (requires both datasets, see Datasets section)
+python experiments/adaptive_results.py \
+  --model results/rl_ctrl/20260531_112037_v6/dqn_ctrl \
+  --out-dir results/adaptive_results_v6 \
+  --n-real 20
+```
+
+> **Note:** Non-RL results (Classical, Adaptive, FullAdaptive) are fully deterministic.
+> RL results are also deterministic (`deterministic=True` inference) given the same model and data.
+> Results will differ if dataset directory contents or ordering differ across machines — see the Datasets section.
 
 ---
 

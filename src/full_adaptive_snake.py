@@ -90,7 +90,7 @@ class FullAdaptiveSnake(AdaptiveSnake):
                 x_c = np.clip(snake[:, 1], 0, w - 1)
                 local_g  = map_coordinates(gmag, [y_c, x_c], order=1, mode="nearest")
 
-                beta_arr  = self._adaptive_beta(image, snake)    # per-point w2(u)
+                beta_arr  = self._adaptive_beta(image, snake)    # per-point w2(u), reuse the helpers from adpative snake, so the local_g computation is slightly different
                 gamma_arr = self._adaptive_gamma(local_g)        # per-point D/Δt diagonal
                 A   = self._build_matrix(n, beta_arr)            # K: position-dependent stiffness
                 inv = np.linalg.inv(A + np.diag(gamma_arr))      # (K + diag(D/Δt))^{-1}
