@@ -14,6 +14,8 @@ This project implements and evaluates four variants of the classical *snake* (pa
 | 2 | **Adaptive** | Spatially adaptive β_i modulated by local gradient magnitude |
 | 3 | **FullAdaptive** | Spatially adaptive β_i **and** γ_i |
 | 4 | **RL-Adaptive** | Adaptive β_i + RL-learned temporal scheduling of (γ, σ) |
+| 5 | **Multiscale** | Coarse-to-fine baseline using a true spatial resolution pyramid |
+| 6 | **Combined (Adaptive + Multiscale)** | Coarse-to-fine multi-scale spatial pyramid + spatially adaptive β_i with quantile force scaling |
 
 ---
 
@@ -148,6 +150,23 @@ The agent observes gradient features and contour statistics at 32 probe points,
 and learns when to apply coarse vs. fine parameter settings to maximize IoU.
 Training uses stable-baselines3 DQN on procedurally generated synthetic images.
 
+### Method 5 — Multiscale Snake (`src/multiscale_snake.py`)
+
+## ADD SOMETHING
+
+### Method 6 — Combined Snake (`src/combined_snake.py`)
+
+Unifies a **True Spatial Multi-Scale Resolution Pyramid** with local **Spatially Adaptive Stiffness** $\beta(x,y)$ to handle highly noisy, low-contrast biomedical images through four core mechanisms:
+
+1. **Multi-Scale Strategy (Image Pyramid):** Downsamples the image to run optimization on a smaller, smoother scale first. This allows the contour to comfortably bypass heavy pixel noise and local traps before upscaling to capture fine native details.
+2. **Local Shape Adaptation:** Dynamically relaxes the contour's bending rigidity $\beta(x,y)$ only near true structural boundaries, allowing the snake to effortlessly dive into complex, non-convex shapes (like the sharp valleys of a star).
+3. **Robust Force Scaling:** Uses a 95th-percentile soft-clipping filter rather than global maximums. This prevents a single noise artifact from masking of your actual target boundary.
+4. **Modality-Aware Routing:** Swaps structural tracking modes automatically based on the dataset:
+    - **Microscopic Mode (Fluo-HeLa):** Employs tight localized isolation bounding boxes to track tiny cell walls without getting pulled away by neighboring cells.
+    - **Macroscopic Mode (Ultrasound):** Expands the initial outer radius to a clean safety zone paired with a macro-smoothing filter.
+
+---
+
 ### Evaluation Metrics (`src/evaluation.py`)
 
 | Metric | Formula | Direction |
@@ -204,6 +223,7 @@ source venv/bin/activate        # macOS/Linux
 
 # 2. Install dependencies
 pip install -r requirements.txt
+pip install imagecodecs         # requires imagecodecs for compressed TIF parsing
 ```
 
 ---
@@ -226,6 +246,22 @@ Saves to `results/adaptive_results/` (or `--out-dir`):
 - `synthetic_visual.png` / `synthetic_metrics.png` / `synthetic_table.txt`
 - `fluo_visual.png` / `fluo_metrics.png` / `fluo_table.txt`
 - `ultrasound_visual.png` / `ultrasound_metrics.png` / `ultrasound_table.txt`
+
+
+### Method 6 Evaluation Pipeline (Synthetic + Real Datasets)
+
+```bash
+python experiments/combined_results.py
+python experiments/combined_results.py --n-real 20       # evaluate specific sample subset counts
+python experiments/combined_results.py --skip-synth      # process real data modality tracks only
+python experiments/combined_results.py --skip-real       # process synthetic benchmarks only
+```
+
+Saves to `results/combined_results/` (or `--out-dir`):
+- `synthetic_visual.png` / `synthetic_metrics.png` / `synthetic_table.txt`
+- `fluo_visual.png` / `fluo_metrics.png` / `fluo_table.txt`
+- `ultrasound_visual.png` / `ultrasound_metrics.png` / `ultrasound_table.txt`
+
 
 ### Train the RL agent
 
@@ -252,6 +288,28 @@ init = np.column_stack([cy + 80*np.sin(theta), cx + 80*np.cos(theta)])
 
 snake, history = model.fit(image, init)
 ```
+
+
+### Running Method 6 on a Custom Matrix
+
+```python
+from src.combined_snake import CombinedSnake
+import numpy as np
+
+model = CombinedSnake(
+    alpha=0.02, beta_min=0.005, beta_max=0.2, k=4.0,             
+    gamma=8.0, sigma=4.5, n_iter=8000, update_every=20,   
+    reparam_every=30, n_levels=3, wedge=1.0
+)
+
+# Initialize standard contour layout tracking envelope
+cy, cx = image.shape[0] // 2, image.shape[1] // 2
+theta = np.linspace(0, 2 * np.pi, 120, endpoint=False)
+init = np.column_stack([cy + 40 * np.sin(theta), cx + 40 * np.cos(theta)])
+
+final_snake, history = model.fit(image, init)
+```
+
 
 ---
 
@@ -291,6 +349,10 @@ python experiments/adaptive_results.py \
 
 **Import errors:**
 - Make sure you run scripts from the project root: `cd 269_project && python experiments/adaptive_results.py`
+
+**ValueError LZW compression error when loading Fluo/Ultrasound data:** 
+- Scientific .tif data streams often utilize compression codecs. 
+- Run pip install imagecodecs in your local terminal environment to supply the required decompression utilities to tifffile.
 
 ---
 
