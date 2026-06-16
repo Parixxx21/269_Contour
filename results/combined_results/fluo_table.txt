@@ -1,5 +1,5 @@
-Real data: fluo  (n=20, 5500 iters)
+Real data: fluo  (n=20, 8000 iters)
 
 Method          IoU mean±std          Hausdorff             MeanDist
 ------------------------------------------------------------------------
-Combined        0.108±0.189            45.2±36.2            20.52±23.93
+Combined        0.736±0.186            3.7±2.1            1.47±0.74

@@ -8,12 +8,8 @@ from .energy import compute_external_forces
 
 class CombinedSnake(AdaptiveSnake):
     """
-    Combined coarse-to-fine (multi-scale) + spatially adaptive snake.
-
-    1. Coarse-to-Fine: Constructs a spatial image pyramid. The snake is initialized
-       on a low-resolution image to bypass local minima, then upscaled to higher resolutions.
-    2. Adaptive: At each level, the bending stiffness (beta) adapts to the local 
-       gradient of that specific resolution level.
+    Optimized coarse-to-fine (multi-scale) + spatially adaptive snake
+    tailored for faint, real-world low-contrast biomedical images (e.g., HeLa cells).
     """
 
     def __init__(
@@ -24,61 +20,70 @@ class CombinedSnake(AdaptiveSnake):
     ):
         super().__init__(**adaptive_kwargs)
         self.n_levels = n_levels
-        
+        # Base budget allocation per level
         self.n_iter_per_level = n_iter_per_level or max(1, self.n_iter // n_levels)
 
     def _build_spatial_pyramid(self, image):
-        """
-        Step 1: Construct a multi-scale spatial pyramid.
-        Returns a list of images ordered from COARSE (low-res) to FINE (original-res).
-        """
+        """Construct a multi-scale spatial pyramid ordered from COARSE to FINE."""
         pyramid = [image]
         current_img = image
         
-        # Iteratively downsample the image by a factor of 0.5
         for _ in range(self.n_levels - 1):
-            # rescale with anti_aliasing=True automatically applies a Gaussian blur
-            # before shrinking, which prevents sampling artifacts.
             current_img = rescale(current_img, 0.5, anti_aliasing=True)
             pyramid.append(current_img)
             
-        # The list is currently [Fine, Medium, Coarse]. 
-        # We reverse it to [Coarse, Medium, Fine] for the optimization loop.
         return pyramid[::-1]
 
     def fit(self, image, init_snake):
-        """
-        Step 2: The Coarse-to-Fine Optimization Loop
-        """
+        """Optimized Coarse-to-Fine Loop with Adaptive Resolution Constraints."""
         pyramid = self._build_spatial_pyramid(image)
         
-        # Scale the initial contour to match the coarsest (smallest) image level
-        # If n_levels = 3, scale_factor = 0.5^2 = 0.25
         scale_factor = 0.5 ** (self.n_levels - 1)
         snake = init_snake.copy().astype(float) * scale_factor
         
         history = []
 
-        # Iterate from Coarse (low-res) to Fine (high-res)
         for level_idx, level_img in enumerate(pyramid):
             h, w = level_img.shape
             
-            # Compute forces for the CURRENT resolution level
-            # We use a small sigma because the image is already smoothed from downsampling
+            # Dynamic Level-Dependent Sigma Scaling
+            # Coarse levels are already downsampled and blurred by rescale(). 
+            # Re-applying a heavy global sigma on a tiny image completely annihilates small cell edges.
+            # We dynamically shrink sigma at coarser resolutions to preserve faint gradients.
+            if level_idx == self.n_levels - 1:
+                current_sigma = self.sigma  # Use native fine-detail sigma at original scale
+            else:
+                current_sigma = max(0.5, self.sigma * 0.5)  # Constrain blur at coarse scales
+            
+            # Compute forces using the resolution-calibrated sigma
             fy, fx = compute_external_forces(
-                level_img, sigma=self.sigma, wline=self.wline, wedge=self.wedge
+                level_img, sigma=current_sigma, wline=self.wline, wedge=self.wedge
             )
             
-            # Normalize forces
+            # Normalize edge forces
             fscale = max(np.abs(fx).max(), np.abs(fy).max(), 1e-8)
             fx = fx / fscale
             fy = fy / fscale
 
+            # Final Level External Force Booster
+            # Real cell membranes have fuzzy gradients. Boosting the external edge force multiplier 
+            # exclusively at the original native resolution layer forces the snake to snap tight.
+            if level_idx == self.n_levels - 1:
+                fx *= 1.5
+                fy *= 1.5
+
+            # Progressive Computational Budget Allocation
+            # Coarse tracking only needs a quick rough sketch. The final fine level requires 
+            # a massive operational budget to creep into sub-pixel microscopic cellular boundaries.
+            if level_idx == self.n_levels - 1:
+                level_iters = int(self.n_iter_per_level * 1.5)  # Boost iterations at native scale
+            else:
+                level_iters = int(self.n_iter_per_level * 0.7)  # Truncate iterations at coarse scales
+
             inv = None
             
             # Optimization loop for the current level
-            for it in range(self.n_iter_per_level):
-                # IMPORTANT FIX: Pass `level_img` instead of `image` so beta calculates correctly
+            for it in range(level_iters):
                 if it % self.update_every == 0:
                     beta_arr = self._adaptive_beta(level_img, snake)
                     A = self._build_matrix(len(snake), beta_arr)
@@ -95,13 +100,10 @@ class CombinedSnake(AdaptiveSnake):
                 if self.reparam_every > 0 and (it + 1) % self.reparam_every == 0:
                     snake = self._reparameterize(snake)
 
-            # Save the final contour of this level to history
-            # (We multiply by the inverse scale so history is easily visualizable on the original image)
+            # Save historical checkpoints scaled back to the reference frame
             current_scale_up = 2 ** (self.n_levels - 1 - level_idx)
             history.append(snake.copy() * current_scale_up)
 
-            # If this is not the last level (original image), upscale the snake 
-            # coordinates by x2 to act as the initialization for the next, larger level.
             if level_idx < self.n_levels - 1:
                 snake = snake * 2.0
 

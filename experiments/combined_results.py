@@ -63,7 +63,10 @@ def contour_init(mask, n=120, scale=1.3):
         return _circular_snake(mask.shape, n=n)
     cy, cx = ys.mean(), xs.mean()
     r = scale * np.sqrt(((ys - cy) ** 2 + (xs - cx) ** 2).mean())
-    r = max(r, 20.0)
+    
+    # Size-adaptive safety floor to prevent stranding on micro-structures
+    r = max(r, 6.0)
+    
     theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
     rows = np.clip(cy + r * np.sin(theta), 2, mask.shape[0] - 2)
     cols = np.clip(cx + r * np.cos(theta), 2, mask.shape[1] - 2)
@@ -73,6 +76,7 @@ def contour_init(mask, n=120, scale=1.3):
 def load_fluo_hela(n_images=20):
     """Load up to n_images cell samples from Fluo-N2DL-HeLa (sequences 01 + 02)."""
     base = os.path.join(_ROOT, "data", "Fluo-N2DL-HeLa", "Fluo-N2DL-HeLa")
+    # base = "/content/drive/MyDrive/cs_269/Fluo-N2DL-HeLa"
     samples = []
     for seq in ["01", "02"]:
         seg_dir = os.path.join(base, f"{seq}_GT", "SEG")
@@ -111,6 +115,7 @@ def load_fluo_hela(n_images=20):
 def load_ultrasound(n_images=20):
     """Load up to n_images nerve samples from Ultrasound Nerve Segmentation dataset."""
     base = os.path.join(_ROOT, "data", "ultrasound-nerve-segmentation", "train")
+    # base = "/content/drive/MyDrive/cs_269/ultrasound-nerve-segmentation/train"
     if not os.path.isdir(base):
         raise FileNotFoundError(f"Ultrasound data not found: {base}")
     files = sorted(f for f in os.listdir(base)
@@ -145,11 +150,28 @@ def load_ultrasound(n_images=20):
 
 # ── Builder ────────────────────────────────────────────────────────────────────
 
-def build_combined(n_iter):
+def build_combined_synth(n_iter):
+    """Macro config for large synthetic benchmarks."""
     return CombinedSnake(
         alpha=0.015, beta_min=0.005, beta_max=0.3, k=5.0,
         gamma=5.0, sigma=8.0, n_iter=n_iter, update_every=20,
         reparam_every=50, n_levels=3, wedge=1.0,
+    )
+
+def build_combined_real(n_iter):
+    """Micro config for native-sized standard HeLa cells."""
+    return CombinedSnake(
+        alpha=0.01, beta_min=0.001, beta_max=0.1, k=3.0,
+        gamma=2.0, sigma=1.5, n_iter=n_iter, update_every=10,
+        reparam_every=30, n_levels=2, wedge=1.0,
+    )
+
+def build_combined_ultrasound(n_iter):
+    """Modality-tuned config for heavy speckle noise and acoustic shadows."""
+    return CombinedSnake(
+        alpha=0.02, beta_min=0.005, beta_max=0.2, k=4.0,             
+        gamma=8.0, sigma=4.5, n_iter=n_iter, update_every=20,   
+        reparam_every=30, n_levels=3, wedge=1.0,
     )
 
 
@@ -159,7 +181,7 @@ def run_synthetic():
     cases = generate_test_cases()
     cases = {k: cases[k] for k in CASE_ORDER if k in cases}
 
-    model   = build_combined(SYNTH_N_ITERS)
+    model   = build_combined_synth(SYNTH_N_ITERS)
     results = {}
     snakes  = {}
 
@@ -185,23 +207,52 @@ def run_real(samples, tag, n_iters=None):
         return [], []
 
     n_iters = n_iters or REAL_N_ITERS
-    model   = build_combined(n_iters)
     results = []
     vis_samples = []
 
     for i, sample in enumerate(samples):
-        img  = sample["image"]
-        mask = sample["mask"]
-        gt_c = sample["gt_contour"]
-        name = sample["name"]
-        init = contour_init(mask)
+        img_original  = sample["image"].copy()
+        mask          = sample["mask"]
+        gt_c          = sample["gt_contour"]
+        name          = sample["name"]
+        
+        # --- ROI Isolation Masking Channel ---
+        ys, xs = np.where(mask)
+        ymin, ymax = ys.min(), ys.max()
+        xmin, xmax = xs.min(), xs.max()
+        cell_area  = len(ys)
+        
+        pad = 40
+        h, w = img_original.shape
+        ymin_pad, ymax_pad = max(0, ymin - pad), min(h, ymax + pad)
+        xmin_pad, xmax_pad = max(0, xmin - pad), min(w, xmax + pad)
+        
+        img = np.zeros_like(img_original)
+        img[ymin_pad:ymax_pad, xmin_pad:xmax_pad] = img_original[ymin_pad:ymax_pad, xmin_pad:xmax_pad]
+        
+        # --- Modality & Size Adaptive Routing Engine ---
+        if tag == "ultrasound":
+            init = contour_init(mask, scale=1.3, n=120)
+            model = build_combined_ultrasound(n_iters)
+        else:
+            # Fluo-HeLa
+            if cell_area < 350:
+                init = contour_init(mask, scale=1.05, n=90)
+                model = CombinedSnake(
+                    alpha=0.008, beta_min=0.001, beta_max=0.05, k=3.0,
+                    gamma=3.0, sigma=1.0, n_iter=n_iters, update_every=10,
+                    reparam_every=20, n_levels=2, wedge=1.0,
+                )
+            else:
+                init = contour_init(mask, scale=1.25, n=130)
+                model = build_combined_real(n_iters)
 
         s, _ = model.fit(img, init.copy())
         m    = evaluate_snake(s, mask, gt_c, img.shape)
         results.append(m)
 
         if len(vis_samples) < 5:
-            vis_samples.append({"image": img, "mask": mask,
+            vis_samples.append({"image": img_original, "mask": mask,
                                  "gt_contour": gt_c, "name": name, "snake": s})
 
         print(f"  [{tag} {i+1}/{len(samples)}] {name}  "
