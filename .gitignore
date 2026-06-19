@@ -2,6 +2,7 @@
 results/*
 !results/adaptive_results
 !results/rl_ctrl/
+!results/multiscale_results/
 results/rl_ctrl/*
 !results/rl_ctrl/20260524_150224_v4/
 results/rl_ctrl/20260524_150224_v4/*
