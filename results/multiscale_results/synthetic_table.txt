@@ -1,0 +1,9 @@
+Synthetic benchmark  (5000 iters)
+
+Case                           IoU   Hausdorff    MeanDist
+----------------------------------------------------------
+Clean Disk                   0.980        1.71        0.57
+Noisy Disk                   0.980        1.85        0.62
+Low-Contrast Ellipse         0.980        2.01        0.58
+Noisy LC Ellipse             0.979        2.07        0.60
+Noisy Star                   0.926        4.90        1.26

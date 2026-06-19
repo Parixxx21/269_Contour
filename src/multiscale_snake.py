@@ -1,62 +1,51 @@
 import numpy as np
-from skimage.segmentation import active_contour
-from skimage.filters import gaussian
+from skimage.transform import rescale
+
+from .snake import ClassicalSnake
 
 
-class MultiscaleSnake:
+class MultiscaleSnake(ClassicalSnake):
     """
-    Coarse-to-fine snake using a Gaussian image pyramid.
+    Coarse-to-fine snake using a true spatial image pyramid.
 
-    Strategy
-    --------
-    1. Build a pyramid of n_levels images, each progressively less smoothed.
-       Level 0 is the most blurred (convex energy landscape, easy to optimize).
-       Level n-1 is the finest (original-scale detail).
-    2. Run skimage's active_contour at each level, propagating the contour
-       from coarser to finer levels as a warm start.
-
-    This significantly reduces the chance of the contour settling in a local
-    minimum caused by noise or weak edges.
+    This version keeps the implicit ClassicalSnake solver and improves
+    robustness by optimizing on progressively finer image resolutions.
     """
 
     def __init__(
         self,
-        alpha=0.015,
-        beta=0.1,
-        gamma=0.001,
-        sigma_coarse=4.0,
-        sigma_fine=1.5,
         n_levels=3,
         n_iter_per_level=None,
-        n_iter=2500,
-        wline=0.0,
-        wedge=1.0,
-        boundary_condition="periodic",
+        sigma_coarse=None,
+        sigma_fine=None,
+        **classical_kwargs,
     ):
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-        self.sigma_coarse = sigma_coarse
-        self.sigma_fine = sigma_fine
-        self.n_levels = n_levels
-        self.n_iter = n_iter
-        # Weight iterations toward coarse levels so elastic propagation has time
-        # to pull far-away points into the force field before refining.
-        if n_iter_per_level is not None:
-            self.iters_per_level = [n_iter_per_level] * n_levels
-        else:
-            base = max(1, n_iter // n_levels)
-            self.iters_per_level = [base * (n_levels - i) // n_levels
-                                    for i in range(n_levels)]
-            self.iters_per_level[-1] = max(base, n_iter - sum(self.iters_per_level[:-1]))
-        self.wline = wline
-        self.wedge = wedge
-        self.boundary_condition = boundary_condition
+        sigma = classical_kwargs.pop("sigma", None)
+        if sigma is None:
+            sigma = sigma_fine if sigma_fine is not None else 8.0
+        classical_kwargs["sigma"] = sigma
 
-    def _build_pyramid(self, image):
-        """Return list of smoothed images, coarsest first."""
-        sigmas = np.linspace(self.sigma_coarse, self.sigma_fine, self.n_levels)
-        return [gaussian(image.astype(float), sigma=s) for s in sigmas]
+        super().__init__(**classical_kwargs)
+        self.n_levels = n_levels
+        self.sigma_coarse = sigma_coarse if sigma_coarse is not None else self.sigma
+        self.sigma_fine = sigma_fine if sigma_fine is not None else self.sigma
+
+        total_iter = classical_kwargs.get("n_iter", 2500)
+        self.n_iter_per_level = n_iter_per_level or max(1, total_iter // n_levels)
+
+    def _build_spatial_pyramid(self, image):
+        """
+        Construct a multi-scale spatial image pyramid via anti-aliased downsampling.
+        Returns a list of scaled images ordered from COARSE to FINE.
+        """
+        pyramid = [image]
+        current_img = image
+
+        for _ in range(self.n_levels - 1):
+            current_img = rescale(current_img, 0.5, anti_aliasing=True)
+            pyramid.append(current_img)
+
+        return pyramid[::-1]
 
     def fit(self, image, init_snake):
         """
@@ -67,25 +56,31 @@ class MultiscaleSnake:
 
         Returns
         -------
-        snake   : (N, 2) final contour
-        history : list of (N, 2) snapshots, one per pyramid level checkpoint
+        snake   : (N, 2) final optimized contour on the original scale
+        history : list of (N, 2) snapshots mapped back to original coordinates
         """
-        pyramid = self._build_pyramid(image)
-        snake = init_snake.copy().astype(float)
-        history = [snake.copy()]
+        pyramid = self._build_spatial_pyramid(image)
+        sigma_levels = np.linspace(self.sigma_coarse, self.sigma_fine, self.n_levels)
 
-        for level_img, n_iter in zip(pyramid, self.iters_per_level):
-            snake = active_contour(
-                level_img,
-                snake,
-                alpha=self.alpha,
-                beta=self.beta,
-                gamma=self.gamma,
-                w_line=self.wline,
-                w_edge=self.wedge,
-                max_num_iter=n_iter,
-                boundary_condition=self.boundary_condition,
-            )
-            history.append(snake.copy())
+        scale_factor = 0.5 ** (self.n_levels - 1)
+        snake = init_snake.copy().astype(float) * scale_factor
+        history = [init_snake.copy()]
 
+        original_n_iter = self.n_iter
+        original_sigma = self.sigma
+
+        for level_idx, (level_img, level_sigma) in enumerate(zip(pyramid, sigma_levels)):
+            self.n_iter = self.n_iter_per_level
+            self.sigma = float(level_sigma)
+
+            snake, _ = super().fit(level_img, snake)
+
+            current_scale_up = 2 ** (self.n_levels - 1 - level_idx)
+            history.append(snake.copy() * current_scale_up)
+
+            if level_idx < self.n_levels - 1:
+                snake = snake * 2.0
+
+        self.n_iter = original_n_iter
+        self.sigma = original_sigma
         return snake, history

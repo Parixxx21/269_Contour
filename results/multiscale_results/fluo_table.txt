@@ -1,0 +1,5 @@
+Real data: fluo  (n=20, 8000 iters)
+
+Method          IoU mean±std          Hausdorff             MeanDist
+------------------------------------------------------------------------
+Multiscale      0.070±0.113            46.8±34.9            21.43±25.54
