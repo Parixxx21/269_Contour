@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robust Active Contour Models for Noisy and Low-Contrast Image Segmentation</title>
+  <style>
+    body {
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 24px;
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.6;
+      color: #222;
+      background: #fafafa;
+    }
+
+    h1, h2 {
+      color: #1f3a5f;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      line-height: 1.2;
+    }
+
+    .authors {
+      margin-top: 0;
+      color: #555;
+      font-size: 1.05em;
+    }
+
+    section {
+      margin-top: 32px;
+    }
+
+    a {
+      color: #0b66c3;
+    }
+
+    figure {
+      margin: 24px 0;
+      padding: 16px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+
+    img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    figcaption {
+      margin-top: 12px;
+      color: #444;
+      font-size: 0.95em;
+    }
+
+    .note {
+      padding: 12px 16px;
+      background: #eef5ff;
+      border-left: 4px solid #3d7cc9;
+    }
+  </style>
+</head>
+<body>
+  <h1>Robust Active Contour Models for Noisy and Low-Contrast Image Segmentation</h1>
+  <p class="authors">
+    Effie Wu, Lyla Liu, Md Aeinul Islam, and Jaehoon Choi<br>
+    University of California, Los Angeles
+  </p>
+
+  <section>
+    <h2>Abstract</h2>
+    <p>
+      Active contour models often struggle with noisy and low-contrast images because fixed parameters 
+      and single-scale optimization adapt poorly to changing boundaries. In this work, we improve contour 
+      robustness through three complementary strategies: spatially adaptive parameterization, coarse-to-fine 
+      multiscale optimization, and reinforcement-learning-based parameter scheduling. We evaluate Classical, 
+      Adaptive, Full-Adaptive, RL-Adaptive, Multi-Scale, and Combined snake variants on synthetic benchmarks, 
+      fluorescence microscopy, and ultrasound datasets. Results show that adaptive approaches consistently 
+      outperform the Classical Snake baseline. RL-Adaptive achieves the strongest overall performance on 
+      challenging synthetic and ultrasound images, while the Combined framework performs best on 
+      low-contrast fluorescence microscopy by improving contour fitting robustness. These findings 
+      demonstrate that integrating adaptive optimization strategies significantly improves active 
+      contour segmentation under difficult imaging conditions.
+    </p>
+  </section>
+
+  <section>
+    <h2>Project Report</h2>
+    <p>
+      <a href="report/report.pdf">View the project report (PDF)</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>Representative Results</h2>
+
+    <figure>
+      <img src="images/synthetic_visual.png" alt="Synthetic benchmark contour results">
+      <figcaption>
+        Synthetic benchmark results comparing active contour variants on clean,
+        noisy, low-contrast, and non-convex shapes.
+      </figcaption>
+    </figure>
+
+    <figure>
+      <img src="images/ultrasound_visual.png" alt="Ultrasound segmentation contour results">
+      <figcaption>
+        Representative ultrasound nerve segmentation examples. These images contain
+        weak boundaries and speckle noise, making them challenging for fixed-parameter
+        active contour models.
+      </figcaption>
+    </figure>
+
+    <figure>
+      <img src="images/fluo_visual.png" alt="Fluorescence microscopy contour results">
+      <figcaption>
+        Representative fluorescence microscopy segmentation results on cell images
+        with irregular object boundaries and imaging noise.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Source Code</h2>
+    <p>
+      The project source code and runnable scripts are included in this archive.
+      Important entry points include:
+    </p>
+    <ul>
+      <li><a href="main.py">main.py</a> &mdash; quick-start demo script</li>
+      <li><a href="src/">src/</a> &mdash; core active contour implementations</li>
+      <li><a href="experiments/">experiments/</a> &mdash; experiment and evaluation scripts</li>
+      <li><a href="extensions/">extensions/</a> &mdash; reinforcement-learning controller code</li>
+      <li><a href="requirements.txt">requirements.txt</a> &mdash; Python dependencies</li>
+    </ul>
+    <p>Please see the included README file for setup instructions, dataset organization, and commands for running the experiments.</p>
+  </section>
+</body>
+</html>
