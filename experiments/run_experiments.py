@@ -63,8 +63,8 @@ def build_methods(adaptive_n_iter=2500):
             gamma=5.0, sigma=8.0, n_iter=adaptive_n_iter, update_every=20, wedge=1.0
         ),
         "Multiscale": MultiscaleSnake(
-            alpha=0.015, beta=0.1, gamma=0.001, sigma_coarse=4.0,
-            sigma_fine=1.5, n_levels=3, n_iter=2500, wedge=1.0
+            alpha=0.015, beta=0.1, gamma=5.0, sigma=8.0,
+            n_levels=3, n_iter=2500, reparam_every=50, wedge=1.0
         ),
         "Combined": CombinedSnake(
             alpha=0.015, beta_min=0.005, beta_max=0.3, k=5.0,
