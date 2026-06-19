@@ -119,6 +119,40 @@ def load_fluo_hela(n_images=20):
     return samples
 
 
+def load_ultrasound(n_images=20):
+    """Load up to n_images nerve samples from Ultrasound Nerve Segmentation dataset."""
+    base = os.path.join(_ROOT, "data", "ultrasound-nerve-segmentation", "train")
+    if not os.path.isdir(base):
+        raise FileNotFoundError(f"Ultrasound data not found: {base}")
+    files = sorted(f for f in os.listdir(base) if f.endswith(".tif") and "_mask" not in f)
+    samples = []
+    for fname in files:
+        mask_path = os.path.join(base, fname.replace(".tif", "_mask.tif"))
+        if not os.path.exists(mask_path):
+            continue
+        mask_raw = tifffile.imread(mask_path)
+        if mask_raw.max() == 0:
+            continue
+        img_raw = tifffile.imread(os.path.join(base, fname)).astype(np.float32)
+        img_norm = (img_raw - img_raw.min()) / (img_raw.max() - img_raw.min() + 1e-8)
+        cell_mask = mask_raw > 0
+        contours = find_contours(cell_mask.astype(float), 0.5)
+        if not contours:
+            continue
+        samples.append({
+            "image": img_norm,
+            "mask": cell_mask,
+            "gt_contour": max(contours, key=len),
+            "name": fname.replace(".tif", ""),
+        })
+        if len(samples) >= n_images:
+            break
+    if not samples:
+        raise FileNotFoundError(f"No valid ultrasound samples with non-empty masks in {base}")
+    print(f"  Loaded {len(samples)} ultrasound samples")
+    return samples
+
+
 def build_multiscale(n_iter):
     return MultiscaleSnake(
         alpha=0.015,
@@ -310,6 +344,14 @@ def main():
         fluo_samples = load_fluo_hela(n_images=args.n_real)
         vis_samples, fluo_results = run_real(fluo_samples, "fluo", n_iters=REAL_N_ITERS)
         plot_real(vis_samples, fluo_results, "fluo", args.out_dir, REAL_N_ITERS)
+
+        try:
+            print(f"\n=== Real data: Ultrasound (n={args.n_real}, {REAL_N_ITERS} iters) ===")
+            us_samples = load_ultrasound(n_images=args.n_real)
+            vis_samples, us_results = run_real(us_samples, "ultrasound", n_iters=REAL_N_ITERS)
+            plot_real(vis_samples, us_results, "ultrasound", args.out_dir, REAL_N_ITERS)
+        except FileNotFoundError as e:
+            print(f"  Skipping ultrasound: {e}")
 
 
 if __name__ == "__main__":

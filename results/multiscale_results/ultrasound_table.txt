@@ -1,0 +1,5 @@
+Real data: ultrasound  (n=20, 8000 iters)
+
+Method          IoU mean±std          Hausdorff             MeanDist
+------------------------------------------------------------------------
+Multiscale      0.438±0.123            61.1±27.8            23.27±11.50
