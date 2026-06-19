@@ -46,8 +46,8 @@ This project implements and evaluates four variants of the classical *snake* (pa
 │   └── rl_vs_adaptive.py          # Focused RL vs Adaptive comparison
 │
 ├── data/
-│   ├── Fluo-N2DL-HeLa/           # Fluorescence microscopy (Cell Tracking Challenge)
-│   └── ultrasound-nerve-segmentation/  # Ultrasound nerve segmentation (Kaggle)
+│   ├── Fluo-N2DL-HeLa/           # Fluorescence microscopy (Cell Tracking Challenge) https://celltrackingchallenge.net/2d-datasets/
+│   └── ultrasound-nerve-segmentation/  # Ultrasound nerve segmentation (Kaggle) https://www.kaggle.com/competitions/ultrasound-nerve-segmentation/rules
 │
 └── results/
     └── adaptive_results/          # Output figures and tables (tracked in git)
