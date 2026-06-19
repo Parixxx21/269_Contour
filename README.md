@@ -29,8 +29,8 @@ This project implements and evaluates four variants of the classical *snake* (pa
 │   ├── snake.py                   # Classical snake (implicit solver, fixed β)
 │   ├── adaptive_snake.py          # Method 1 & 2: Classical (fixed β) and Adaptive (spatial β)
 │   ├── full_adaptive_snake.py     # Method 3: FullAdaptive (spatial β + γ)
-│   ├── multiscale_snake.py        # Coarse-to-fine Gaussian pyramid snake (To be completed)
-│   ├── combined_snake.py          # Combined multiscale + spatially adaptive snake (To be completed)
+│   ├── multiscale_snake.py        # Method 5: Coarse-to-fine multi-scale snake
+│   ├── combined_snake.py          # Method 6: Combined multiscale + spatially adaptive snake
 │   ├── energy.py                  # Shared energy + force field utilities
 │   └── evaluation.py             # IoU, Hausdorff, mean contour distance
 │
@@ -152,7 +152,40 @@ Training uses stable-baselines3 DQN on procedurally generated synthetic images.
 
 ### Method 5 — Multiscale Snake (`src/multiscale_snake.py`)
 
-## ADD SOMETHING
+Implements a coarse-to-fine optimization baseline that keeps the classical
+snake parameters fixed while improving convergence through a spatial image
+pyramid.
+
+At each level of the pyramid:
+
+1. the input image is downsampled and smoothed,
+2. the contour is optimized on the coarsest level first,
+3. the converged contour is upsampled to initialize the next finer level,
+4. refinement continues until the original resolution is reached.
+
+This isolates the benefit of multi-resolution optimization without introducing
+spatially adaptive stiffness or RL-based temporal scheduling.
+
+**Key parameters:**
+- `alpha` (0.015): elasticity
+- `beta` (0.1): fixed bending stiffness
+- `gamma` (5.0): time-step regularizer
+- `sigma` (8.0): smoothing strength used in force computation
+- `n_levels` (3): number of pyramid levels
+- `reparam_every` (50): contour reparameterization frequency
+- `update_every` (20): force / matrix refresh frequency
+- `n_iter` (5000 synthetic, 8000 real data): optimization steps
+
+**Validated synthetic benchmark results:**
+- Clean Disk: `IoU = 0.980`
+- Noisy Disk: `IoU = 0.980`
+- Low-Contrast Ellipse: `IoU = 0.980`
+- Noisy LC Ellipse: `IoU = 0.979`
+- Noisy Star: `IoU = 0.926`
+
+**Validated real-data results:**
+- FLUO: `IoU = 0.070 ± 0.113`
+- Ultrasound: `IoU = 0.438 ± 0.123`
 
 ### Method 6 — Combined Snake (`src/combined_snake.py`)
 
@@ -246,6 +279,20 @@ Saves to `results/adaptive_results/` (or `--out-dir`):
 - `synthetic_visual.png` / `synthetic_metrics.png` / `synthetic_table.txt`
 - `fluo_visual.png` / `fluo_metrics.png` / `fluo_table.txt`
 - `ultrasound_visual.png` / `ultrasound_metrics.png` / `ultrasound_table.txt`
+
+### Method 5 Evaluation Pipeline (Synthetic + Real Datasets)
+
+```bash
+python experiments/multiscale_results.py
+python experiments/multiscale_results.py --n-real 20
+python experiments/multiscale_results.py --skip-synth      # real data only
+python experiments/multiscale_results.py --skip-real       # synthetic only
+```
+
+Saves to `results/multiscale_results/` (or `--out-dir`):
+- `synthetic_visual.png` / `synthetic_table.txt`
+- `fluo_visual.png` / `fluo_table.txt`
+- `ultrasound_visual.png` / `ultrasound_table.txt`
 
 
 ### Method 6 Evaluation Pipeline (Synthetic + Real Datasets)
